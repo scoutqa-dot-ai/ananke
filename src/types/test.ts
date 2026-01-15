@@ -45,6 +45,7 @@ export const AssertBlockSchema = z.object({
 const HookSchema = z.object({
   cmd: z.array(z.string()),
   timeout_ms: z.number().optional(),
+  env: z.record(z.string()).optional(),
 });
 
 // User message turn

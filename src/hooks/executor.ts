@@ -1,6 +1,6 @@
 import { execa, type ResultPromise } from 'execa';
 import type { Hook } from '../types/index.js';
-import type { Variables } from '../config/interpolate.js';
+import { interpolate, type Variables } from '../config/interpolate.js';
 
 const DEFAULT_TIMEOUT_MS = 30000;
 
@@ -11,16 +11,28 @@ export interface HookResult {
 
 /**
  * Execute a single hook and parse its JSON output
+ * @param hook The hook configuration
+ * @param currentVars Variables from previous hooks (for interpolation)
  */
-export async function executeHook(hook: Hook): Promise<HookResult> {
+export async function executeHook(hook: Hook, currentVars: Variables = {}): Promise<HookResult> {
   const [cmd, ...args] = hook.cmd;
   const timeout = hook.timeout_ms ?? DEFAULT_TIMEOUT_MS;
+
+  // Build environment with interpolated values
+  let env: NodeJS.ProcessEnv | undefined;
+  if (hook.env) {
+    env = { ...process.env };
+    for (const [key, value] of Object.entries(hook.env)) {
+      env[key] = interpolate(value, currentVars);
+    }
+  }
 
   let subprocess: ResultPromise;
   try {
     subprocess = execa(cmd, args, {
       timeout,
       reject: true,
+      env,
     });
   } catch (err) {
     throw new Error(`Failed to start hook: ${hook.cmd.join(' ')}`);
@@ -65,7 +77,7 @@ export async function executeHooks(hooks: Hook[]): Promise<Variables> {
   const variables: Variables = {};
 
   for (const hook of hooks) {
-    const result = await executeHook(hook);
+    const result = await executeHook(hook, variables);
     Object.assign(variables, result.variables);
   }
 
