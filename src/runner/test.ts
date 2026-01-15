@@ -71,7 +71,14 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
     : undefined;
 
   // Create client
-  const client = new AGUIClient({ endpoint, headers, agentId, onDebug: debug });
+  const client = new AGUIClient({
+    endpoint,
+    headers,
+    agentId,
+    onDebug: debug,
+    state: config.target.state,
+    forwardedProps: config.target.forwardedProps,
+  });
 
   // Execute turns
   let threadId: string | undefined;

@@ -6,6 +6,10 @@ export const ProjectConfigSchema = z.object({
     headers: z.record(z.string()).optional(),
     /** Agent ID for CopilotKit transport */
     agentId: z.string().optional(),
+    /** Initial state for the agent */
+    state: z.record(z.unknown()).optional(),
+    /** Forwarded props passed to the agent */
+    forwardedProps: z.record(z.unknown()).optional(),
   }),
 });
 

@@ -2,8 +2,8 @@ import {
   randomUUID,
   runHttpRequest,
   transformHttpEventStream,
-} from '@ag-ui/client';
-import type { AGUIEvent } from './events.js';
+} from "@ag-ui/client";
+import type { AGUIEvent } from "./events.js";
 
 export interface AGUIClientOptions {
   endpoint: string;
@@ -14,6 +14,10 @@ export interface AGUIClientOptions {
   maxRetries?: number;
   /** Debug callback for logging */
   onDebug?: (message: string) => void;
+  /** Initial state for the agent */
+  state?: Record<string, unknown>;
+  /** Forwarded props passed to the agent */
+  forwardedProps?: Record<string, unknown>;
 }
 
 export interface SendMessageOptions {
@@ -46,49 +50,71 @@ export class AGUIClient {
   private maxRetries: number;
   private headers: Record<string, string>;
   private debug: (message: string) => void;
+  private state: Record<string, unknown> | undefined;
+  private forwardedProps: Record<string, unknown> | undefined;
 
   constructor(options: AGUIClientOptions) {
     this.endpoint = options.endpoint;
-    this.agentId = options.agentId ?? 'ag-ui-agent';
+    this.agentId = options.agentId ?? "ag-ui-agent";
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.headers = options.headers ?? {};
     this.debug = options.onDebug ?? (() => {});
+    this.state = options.state;
+    this.forwardedProps = options.forwardedProps;
   }
 
   /**
    * Send a message and stream events via SSE (agent/run)
    */
   async *sendMessage(options: SendMessageOptions): AsyncGenerator<AGUIEvent> {
-    const innerBody: Record<string, unknown> = {
+    const input: Record<string, unknown> = {
       threadId: options.threadId,
       runId: randomUUID(),
       messages: options.message
-        ? [{ id: randomUUID(), role: 'user', content: options.message }]
+        ? [{ id: randomUUID(), role: "user", content: options.message }]
         : [],
     };
 
-    if (options.forwardedProps) {
-      innerBody.forwardedProps = options.forwardedProps;
+    if (this.state !== undefined) {
+      input.state = this.state;
     }
 
-    yield* this.executeRequest('agent/run', innerBody);
+    // Merge forwarded props (client-level + request-level)
+    const mergedForwardedProps = {
+      ...this.forwardedProps,
+      ...options.forwardedProps,
+    };
+    if (Object.keys(mergedForwardedProps).length > 0) {
+      input.forwardedProps = mergedForwardedProps;
+    }
+
+    yield* this.executeRequest("agent/run", input);
   }
 
   /**
    * Connect to existing thread without sending a message (agent/connect)
    */
   async *connect(options: ConnectOptions): AsyncGenerator<AGUIEvent> {
-    const innerBody: Record<string, unknown> = {
+    const input: Record<string, unknown> = {
       threadId: options.threadId,
       runId: randomUUID(),
       messages: [],
     };
 
-    if (options.forwardedProps) {
-      innerBody.forwardedProps = options.forwardedProps;
+    if (this.state !== undefined) {
+      input.state = this.state;
     }
 
-    yield* this.executeRequest('agent/connect', innerBody);
+    // Merge forwarded props (client-level + request-level)
+    const mergedForwardedProps = {
+      ...this.forwardedProps,
+      ...options.forwardedProps,
+    };
+    if (Object.keys(mergedForwardedProps).length > 0) {
+      input.forwardedProps = mergedForwardedProps;
+    }
+
+    yield* this.executeRequest("agent/connect", input);
   }
 
   /**
@@ -96,7 +122,7 @@ export class AGUIClient {
    */
   private async *executeRequest(
     method: string,
-    innerBody: Record<string, unknown>
+    input: RunAgentInput
   ): AsyncGenerator<AGUIEvent> {
     const events: AGUIEvent[] = [];
     let receivedMeaningfulEvents = false;
@@ -110,14 +136,14 @@ export class AGUIClient {
       const envelope = {
         method,
         params: { agentId: this.agentId },
-        body: innerBody,
+        body: input,
       };
 
       const requestInit: RequestInit = {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          Accept: 'text/event-stream',
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
           ...this.headers,
         },
         body: JSON.stringify(envelope),
@@ -142,11 +168,15 @@ export class AGUIClient {
               }
             },
             error: (err) => {
-              this.debug(`[AG-UI] Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+              this.debug(
+                `[AG-UI] Error: ${
+                  err instanceof Error ? err.message : "Unknown error"
+                }`
+              );
               events.push({
-                type: 'RUN_ERROR',
-                runId: '',
-                message: err instanceof Error ? err.message : 'Unknown error',
+                type: "RUN_ERROR",
+                runId: "",
+                message: err instanceof Error ? err.message : "Unknown error",
               });
               reject(err);
             },
@@ -159,17 +189,22 @@ export class AGUIClient {
 
         // If completed without receiving any meaningful events, retry
         if (!receivedMeaningfulEvents && attempt < this.maxRetries) {
-          this.debug(`[AG-UI] No events received, retrying (${attempt}/${this.maxRetries})...`);
+          this.debug(
+            `[AG-UI] No events received, retrying (${attempt}/${this.maxRetries})...`
+          );
           await sleep(RETRY_DELAY_MS);
           return executeStream(attempt + 1);
         }
       } catch (error) {
         // Error already handled in subscribe.error
-        if (events.length === 0 || events[events.length - 1].type !== 'RUN_ERROR') {
-          const msg = error instanceof Error ? error.message : 'Unknown error';
+        if (
+          events.length === 0 ||
+          events[events.length - 1].type !== "RUN_ERROR"
+        ) {
+          const msg = error instanceof Error ? error.message : "Unknown error";
           events.push({
-            type: 'RUN_ERROR',
-            runId: '',
+            type: "RUN_ERROR",
+            runId: "",
             message: msg,
           });
         }
@@ -188,77 +223,81 @@ export class AGUIClient {
 /**
  * Convert BaseEvent from @ag-ui/client to our AGUIEvent type
  */
-function convertToAGUIEvent(event: { type: string; [key: string]: unknown }): AGUIEvent | null {
+function convertToAGUIEvent(event: {
+  type: string;
+  [key: string]: unknown;
+}): AGUIEvent | null {
   switch (event.type) {
-    case 'RUN_STARTED':
+    case "RUN_STARTED":
       return {
-        type: 'RUN_STARTED',
-        runId: String(event.runId ?? ''),
+        type: "RUN_STARTED",
+        runId: String(event.runId ?? ""),
         threadId: event.threadId as string | undefined,
       };
 
-    case 'TEXT_MESSAGE_START':
+    case "TEXT_MESSAGE_START":
       return {
-        type: 'TEXT_MESSAGE_START',
-        messageId: String(event.messageId ?? ''),
-        role: 'assistant',
+        type: "TEXT_MESSAGE_START",
+        messageId: String(event.messageId ?? ""),
+        role: "assistant",
       };
 
-    case 'TEXT_MESSAGE_CONTENT':
+    case "TEXT_MESSAGE_CONTENT":
       return {
-        type: 'TEXT_MESSAGE_CONTENT',
-        messageId: String(event.messageId ?? ''),
-        delta: String(event.delta ?? ''),
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId: String(event.messageId ?? ""),
+        delta: String(event.delta ?? ""),
       };
 
-    case 'TEXT_MESSAGE_END':
+    case "TEXT_MESSAGE_END":
       return {
-        type: 'TEXT_MESSAGE_END',
-        messageId: String(event.messageId ?? ''),
+        type: "TEXT_MESSAGE_END",
+        messageId: String(event.messageId ?? ""),
       };
 
-    case 'TOOL_CALL_START':
+    case "TOOL_CALL_START":
       return {
-        type: 'TOOL_CALL_START',
-        toolCallId: String(event.toolCallId ?? ''),
-        toolCallName: String(event.toolCallName ?? ''),
+        type: "TOOL_CALL_START",
+        toolCallId: String(event.toolCallId ?? ""),
+        toolCallName: String(event.toolCallName ?? ""),
         parentMessageId: event.parentMessageId as string | undefined,
       };
 
-    case 'TOOL_CALL_ARGS':
+    case "TOOL_CALL_ARGS":
       return {
-        type: 'TOOL_CALL_ARGS',
-        toolCallId: String(event.toolCallId ?? ''),
-        delta: String(event.delta ?? ''),
+        type: "TOOL_CALL_ARGS",
+        toolCallId: String(event.toolCallId ?? ""),
+        delta: String(event.delta ?? ""),
       };
 
-    case 'TOOL_CALL_END':
+    case "TOOL_CALL_END":
       return {
-        type: 'TOOL_CALL_END',
-        toolCallId: String(event.toolCallId ?? ''),
+        type: "TOOL_CALL_END",
+        toolCallId: String(event.toolCallId ?? ""),
       };
 
-    case 'TOOL_CALL_RESULT':
+    case "TOOL_CALL_RESULT":
       return {
-        type: 'TOOL_CALL_RESULT',
-        toolCallId: String(event.toolCallId ?? ''),
-        result: typeof event.result === 'string'
-          ? event.result
-          : JSON.stringify(event.result ?? ''),
+        type: "TOOL_CALL_RESULT",
+        toolCallId: String(event.toolCallId ?? ""),
+        result:
+          typeof event.result === "string"
+            ? event.result
+            : JSON.stringify(event.result ?? ""),
       };
 
-    case 'RUN_ERROR':
+    case "RUN_ERROR":
       return {
-        type: 'RUN_ERROR',
-        runId: String(event.runId ?? ''),
-        message: String(event.message ?? 'Unknown error'),
+        type: "RUN_ERROR",
+        runId: String(event.runId ?? ""),
+        message: String(event.message ?? "Unknown error"),
         code: event.code as string | undefined,
       };
 
-    case 'RUN_FINISHED':
+    case "RUN_FINISHED":
       return {
-        type: 'RUN_FINISHED',
-        runId: String(event.runId ?? ''),
+        type: "RUN_FINISHED",
+        runId: String(event.runId ?? ""),
       };
 
     default:
