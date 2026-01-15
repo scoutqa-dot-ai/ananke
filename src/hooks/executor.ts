@@ -53,6 +53,13 @@ export async function executeHook(hook: Hook, options: ExecuteHookOptions = {}):
   const result = await subprocess;
   debug(`[Hook] Exit code: ${result.exitCode}`);
 
+  // Log stderr if present (useful for debugging)
+  const stderrRaw = result.stderr;
+  const stderr = typeof stderrRaw === 'string' ? stderrRaw.trim() : '';
+  if (stderr) {
+    debug(`[Hook] Stderr: ${stderr.slice(0, 200)}${stderr.length > 200 ? '...' : ''}`);
+  }
+
   const stdoutRaw = result.stdout;
   const stdout = typeof stdoutRaw === 'string' ? stdoutRaw.trim() : '';
   if (!stdout) {
@@ -60,21 +67,25 @@ export async function executeHook(hook: Hook, options: ExecuteHookOptions = {}):
     return { variables: {}, stdout: '' };
   }
 
-  debug(`[Hook] Output: ${stdout.slice(0, 200)}${stdout.length > 200 ? '...' : ''}`);
+  debug(`[Hook] Stdout: ${stdout.slice(0, 200)}${stdout.length > 200 ? '...' : ''}`);
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(stdout);
   } catch {
-    throw new Error(
-      `Hook output is not valid JSON: ${hook.cmd.join(' ')}\nOutput: ${stdout}`
-    );
+    let errMsg = `Hook output is not valid JSON: ${hook.cmd.join(' ')}\nStdout: ${stdout}`;
+    if (stderr) {
+      errMsg += `\nStderr: ${stderr}`;
+    }
+    throw new Error(errMsg);
   }
 
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new Error(
-      `Hook output must be a JSON object: ${hook.cmd.join(' ')}\nOutput: ${stdout}`
-    );
+    let errMsg = `Hook output must be a JSON object: ${hook.cmd.join(' ')}\nStdout: ${stdout}`;
+    if (stderr) {
+      errMsg += `\nStderr: ${stderr}`;
+    }
+    throw new Error(errMsg);
   }
 
   // Convert all values to strings for the variable map
