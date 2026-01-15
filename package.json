@@ -24,6 +24,7 @@
     "node": ">=18"
   },
   "dependencies": {
+    "@ag-ui/client": "^0.0.43",
     "commander": "^12.1.0",
     "execa": "^9.5.2",
     "js-yaml": "^4.1.0",
