@@ -1,5 +1,6 @@
 import {
   randomUUID,
+  RunAgentInput,
   runHttpRequest,
   transformHttpEventStream,
 } from "@ag-ui/client";
@@ -8,29 +9,18 @@ import type { AGUIEvent } from "./events.js";
 export interface AGUIClientOptions {
   endpoint: string;
   headers?: Record<string, string>;
-  /** Agent ID for CopilotKit transport (default: "ag-ui-agent") */
-  agentId?: string;
-  /** Max retries when no events received */
   maxRetries?: number;
-  /** Debug callback for logging */
-  onDebug?: (message: string) => void;
-  /** Initial state for the agent */
-  state?: Record<string, unknown>;
-  /** Forwarded props passed to the agent */
+
+  // AG-UI specific options
+  agentId?: string;
   forwardedProps?: Record<string, unknown>;
+  onDebug?: (message: string) => void;
+  state?: Record<string, unknown>;
+  threadId?: string;
 }
 
 export interface SendMessageOptions {
-  threadId?: string;
   message: string;
-  /** Custom forwarded props for the request */
-  forwardedProps?: Record<string, unknown>;
-}
-
-export interface ConnectOptions {
-  threadId?: string;
-  /** Custom forwarded props for the request */
-  forwardedProps?: Record<string, unknown>;
 }
 
 const DEFAULT_MAX_RETRIES = 3;
@@ -51,42 +41,37 @@ export class AGUIClient {
   private headers: Record<string, string>;
   private debug: (message: string) => void;
   private state: Record<string, unknown> | undefined;
+  private threadId: string;
   private forwardedProps: Record<string, unknown> | undefined;
 
   constructor(options: AGUIClientOptions) {
     this.endpoint = options.endpoint;
-    this.agentId = options.agentId ?? "ag-ui-agent";
+    this.agentId = options.agentId ?? "";
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.headers = options.headers ?? {};
     this.debug = options.onDebug ?? (() => {});
     this.state = options.state;
+    this.threadId = options.threadId ?? randomUUID();
     this.forwardedProps = options.forwardedProps;
+
+    if (this.agentId.length === 0) {
+      throw new Error("AGUIClient requires an agentId");
+    }
   }
 
   /**
    * Send a message and stream events via SSE (agent/run)
    */
   async *sendMessage(options: SendMessageOptions): AsyncGenerator<AGUIEvent> {
-    const input: Record<string, unknown> = {
-      threadId: options.threadId,
+    const input: RunAgentInput = {
+      context: [],
+      forwardedProps: this.forwardedProps,
       runId: randomUUID(),
-      messages: options.message
-        ? [{ id: randomUUID(), role: "user", content: options.message }]
-        : [],
+      state: this.state,
+      threadId: this.threadId,
+      tools: [],
+      messages: [{ id: randomUUID(), role: "user", content: options.message }],
     };
-
-    if (this.state !== undefined) {
-      input.state = this.state;
-    }
-
-    // Merge forwarded props (client-level + request-level)
-    const mergedForwardedProps = {
-      ...this.forwardedProps,
-      ...options.forwardedProps,
-    };
-    if (Object.keys(mergedForwardedProps).length > 0) {
-      input.forwardedProps = mergedForwardedProps;
-    }
 
     yield* this.executeRequest("agent/run", input);
   }
@@ -94,25 +79,16 @@ export class AGUIClient {
   /**
    * Connect to existing thread without sending a message (agent/connect)
    */
-  async *connect(options: ConnectOptions): AsyncGenerator<AGUIEvent> {
-    const input: Record<string, unknown> = {
-      threadId: options.threadId,
-      runId: randomUUID(),
+  async *connect(): AsyncGenerator<AGUIEvent> {
+    const input: RunAgentInput = {
+      context: [],
+      forwardedProps: this.forwardedProps,
       messages: [],
+      runId: randomUUID(),
+      state: this.state,
+      threadId: this.threadId,
+      tools: [],
     };
-
-    if (this.state !== undefined) {
-      input.state = this.state;
-    }
-
-    // Merge forwarded props (client-level + request-level)
-    const mergedForwardedProps = {
-      ...this.forwardedProps,
-      ...options.forwardedProps,
-    };
-    if (Object.keys(mergedForwardedProps).length > 0) {
-      input.forwardedProps = mergedForwardedProps;
-    }
 
     yield* this.executeRequest("agent/connect", input);
   }

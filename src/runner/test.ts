@@ -75,7 +75,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
     ? interpolateObject(config.target.forwardedProps, variables)
     : undefined;
 
-  // Create client
+  // Create client (threadId can come from variables, e.g., from hooks)
   const client = new AGUIClient({
     endpoint,
     headers,
@@ -83,42 +83,40 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
     onDebug: debug,
     state: config.target.state,
     forwardedProps,
+    threadId: variables.threadId,
   });
 
   // Execute turns
-  let threadId: string | undefined;
-
   for (let i = 0; i < test.turns.length; i++) {
     const turn = test.turns[i];
 
     try {
-      let result: { turnData: TurnData; threadId?: string };
+      let turnData: TurnData;
 
       if (isConnectTurn(turn)) {
         // Connect turn - no message, just observe
         if (verbose) log(`  Turn ${i + 1}: [connect]`);
-        result = await executeConnectTurn(client, i, threadId);
+        turnData = await executeConnectTurn(client, i);
       } else if (isUserTurn(turn)) {
         // User message turn
         const userMessage = interpolate(turn.user, variables);
         if (verbose) log(`  Turn ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
-        result = await executeTurn(client, userMessage, i, threadId);
+        turnData = await executeTurn(client, userMessage, i);
       } else {
         // Should never happen due to Zod validation
         throw new Error(`Unknown turn type at index ${i}`);
       }
 
-      turns.push(result.turnData);
-      threadId = result.threadId;
+      turns.push(turnData);
 
       if (verbose) {
-        log(`    Tools: ${result.turnData.toolCalls.map((t) => t.name).join(', ') || '(none)'}`);
-        log(`    Duration: ${result.turnData.endTs - result.turnData.startTs}ms`);
+        log(`    Tools: ${turnData.toolCalls.map((t) => t.name).join(', ') || '(none)'}`);
+        log(`    Duration: ${turnData.endTs - turnData.startTs}ms`);
       }
 
       // Evaluate turn-level assertions
       if (turn.assert) {
-        const evalResult = evaluateTurnAssertions(result.turnData, turn.assert);
+        const evalResult = evaluateTurnAssertions(turnData, turn.assert);
         if (!evalResult.passed) {
           for (const failure of evalResult.results) {
             const msg = formatFailure(failure, i + 1);

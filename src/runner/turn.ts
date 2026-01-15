@@ -8,26 +8,16 @@ interface PendingToolCall {
   startTs: number;
 }
 
-interface TurnResult {
-  turnData: TurnData;
-  threadId?: string;
-}
-
 /**
  * Execute a user message turn and collect data
  */
 export async function executeTurn(
   client: AGUIClient,
   userMessage: string,
-  turnIndex: number,
-  threadId?: string
-): Promise<TurnResult> {
-  const events = client.sendMessage({
-    threadId,
-    message: userMessage,
-  });
-
-  return collectTurnData(events, turnIndex, threadId);
+  turnIndex: number
+): Promise<TurnData> {
+  const events = client.sendMessage({ message: userMessage });
+  return collectTurnData(events, turnIndex);
 }
 
 /**
@@ -35,14 +25,10 @@ export async function executeTurn(
  */
 export async function executeConnectTurn(
   client: AGUIClient,
-  turnIndex: number,
-  threadId?: string
-): Promise<TurnResult> {
-  const events = client.connect({
-    threadId,
-  });
-
-  return collectTurnData(events, turnIndex, threadId);
+  turnIndex: number
+): Promise<TurnData> {
+  const events = client.connect();
+  return collectTurnData(events, turnIndex);
 }
 
 /**
@@ -50,38 +36,27 @@ export async function executeConnectTurn(
  */
 async function collectTurnData(
   events: AsyncGenerator<AGUIEvent>,
-  turnIndex: number,
-  threadId?: string
-): Promise<TurnResult> {
+  turnIndex: number
+): Promise<TurnData> {
   const startTs = Date.now();
   const toolCalls: ToolCall[] = [];
   const pendingToolCalls = new Map<string, PendingToolCall>();
   let assistantText = '';
-  let currentThreadId = threadId;
 
   for await (const event of events) {
-    currentThreadId = handleEvent(
-      event,
-      toolCalls,
-      pendingToolCalls,
-      (text) => {
-        assistantText += text;
-      },
-      currentThreadId
-    );
+    handleEvent(event, toolCalls, pendingToolCalls, (text) => {
+      assistantText += text;
+    });
   }
 
   const endTs = Date.now();
 
   return {
-    turnData: {
-      turnIndex,
-      toolCalls,
-      assistantText,
-      startTs,
-      endTs,
-    },
-    threadId: currentThreadId,
+    turnIndex,
+    toolCalls,
+    assistantText,
+    startTs,
+    endTs,
   };
 }
 
@@ -89,13 +64,9 @@ function handleEvent(
   event: AGUIEvent,
   toolCalls: ToolCall[],
   pendingToolCalls: Map<string, PendingToolCall>,
-  onText: (text: string) => void,
-  threadId?: string
-): string | undefined {
+  onText: (text: string) => void
+): void {
   switch (event.type) {
-    case 'RUN_STARTED':
-      return event.threadId ?? threadId;
-
     case 'TEXT_MESSAGE_CONTENT':
       onText(event.delta);
       break;
@@ -148,6 +119,4 @@ function handleEvent(
     case 'RUN_ERROR':
       throw new Error(`AG-UI run error: ${event.message}`);
   }
-
-  return threadId;
 }
