@@ -82,6 +82,42 @@ describe('assertRequiredTools', () => {
     expect(results[0].passed).toBe(false);
   });
 
+  it('checks args_match with nested dot notation', () => {
+    const toolCalls = [
+      makeToolCall('tool', {
+        user: { name: 'John', address: { city: 'Paris' } },
+      }),
+    ];
+    const results = assertRequiredTools(toolCalls, [
+      { name: 'tool', args_match: { 'user.name': 'John', 'user.address.city': 'Paris' } },
+    ]);
+    expect(results).toHaveLength(0);
+  });
+
+  it('fails args_match with nested dot notation when not matching', () => {
+    const toolCalls = [
+      makeToolCall('tool', {
+        user: { name: 'Jane', address: { city: 'London' } },
+      }),
+    ];
+    const results = assertRequiredTools(toolCalls, [
+      { name: 'tool', args_match: { 'user.name': 'John' } },
+    ]);
+    expect(results).toHaveLength(1);
+    expect(results[0].passed).toBe(false);
+    expect(results[0].actual).toBe('Jane');
+  });
+
+  it('fails args_match when nested path does not exist', () => {
+    const toolCalls = [makeToolCall('tool', { user: { name: 'John' } })];
+    const results = assertRequiredTools(toolCalls, [
+      { name: 'tool', args_match: { 'user.address.city': 'Paris' } },
+    ]);
+    expect(results).toHaveLength(1);
+    expect(results[0].passed).toBe(false);
+    expect(results[0].actual).toBe('argument not found');
+  });
+
   it('checks result_match', () => {
     const toolCalls = [makeToolCall('tool', {}, 'success: done')];
     const results = assertRequiredTools(toolCalls, [
@@ -142,5 +178,24 @@ describe('assertForbiddenCalls', () => {
     ]);
     expect(results).toHaveLength(1);
     expect(results[0].passed).toBe(false);
+  });
+
+  it('checks nested args_match with dot notation', () => {
+    const toolCalls = [
+      makeToolCall('tool', { config: { dangerous: true } }),
+    ];
+    const results = assertForbiddenCalls(toolCalls, [
+      { name: 'tool', args_match: { 'config.dangerous': 'true' } },
+    ]);
+    expect(results).toHaveLength(1);
+    expect(results[0].passed).toBe(false);
+  });
+
+  it('passes nested args_match when path does not exist', () => {
+    const toolCalls = [makeToolCall('tool', { config: { safe: true } })];
+    const results = assertForbiddenCalls(toolCalls, [
+      { name: 'tool', args_match: { 'config.dangerous': 'true' } },
+    ]);
+    expect(results).toHaveLength(0);
   });
 });

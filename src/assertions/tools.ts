@@ -191,6 +191,23 @@ function assertCount(
   return null;
 }
 
+function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
+  const parts = path.split('.');
+  let current: unknown = obj;
+
+  for (const part of parts) {
+    if (current === null || current === undefined) {
+      return undefined;
+    }
+    if (typeof current !== 'object') {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[part];
+  }
+
+  return current;
+}
+
 function assertArgsMatch(
   toolName: string,
   call: ToolCall,
@@ -199,7 +216,7 @@ function assertArgsMatch(
   const results: AssertionResult[] = [];
 
   for (const [key, pattern] of Object.entries(argsMatch)) {
-    const value = call.args[key];
+    const value = getNestedValue(call.args, key);
     if (value === undefined) {
       results.push({
         passed: false,
@@ -229,7 +246,7 @@ function checkArgsMatch(
   argsMatch: Record<string, string>
 ): boolean {
   for (const [key, pattern] of Object.entries(argsMatch)) {
-    const value = call.args[key];
+    const value = getNestedValue(call.args, key);
     if (value === undefined) return false;
     const valueStr = typeof value === 'string' ? value : JSON.stringify(value);
     if (!new RegExp(pattern).test(valueStr)) return false;
