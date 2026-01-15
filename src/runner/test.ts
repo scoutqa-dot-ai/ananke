@@ -3,6 +3,11 @@ import { executeHooks } from '../hooks/index.js';
 import { interpolate, interpolateObject, type Variables } from '../config/interpolate.js';
 import type { ProjectConfig, TestFile, TestData, TurnData } from '../types/index.js';
 import { executeTurn } from './turn.js';
+import {
+  evaluateTurnAssertions,
+  evaluateTestAssertions,
+  type AssertionResult,
+} from '../assertions/index.js';
 
 export interface TestRunnerOptions {
   config: ProjectConfig;
@@ -81,8 +86,24 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
         log(`    Duration: ${result.turnData.endTs - result.turnData.startTs}ms`);
       }
 
-      // TODO: Phase 4 - Evaluate turn-level assertions
-      // For now, just collect data
+      // Evaluate turn-level assertions
+      if (turn.assert) {
+        const evalResult = evaluateTurnAssertions(result.turnData, turn.assert);
+        if (!evalResult.passed) {
+          for (const failure of evalResult.results) {
+            const msg = formatFailure(failure, i + 1);
+            failures.push(msg);
+            if (verbose) log(`    ${msg}`);
+          }
+          // Fail fast on turn-level assertion failure
+          return {
+            testName: test.name,
+            passed: false,
+            testData: buildTestData(turns, startTs),
+            failures,
+          };
+        }
+      }
     } catch (err) {
       return {
         testName: test.name,
@@ -94,12 +115,23 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
     }
   }
 
-  // TODO: Phase 4 - Evaluate test-level assertions
+  // Evaluate test-level assertions
+  const testData = buildTestData(turns, startTs);
+  if (test.assert) {
+    const evalResult = evaluateTestAssertions(testData, test.assert);
+    if (!evalResult.passed) {
+      for (const failure of evalResult.results) {
+        const msg = formatFailure(failure);
+        failures.push(msg);
+        if (verbose) log(`  ${msg}`);
+      }
+    }
+  }
 
   return {
     testName: test.name,
     passed: failures.length === 0,
-    testData: buildTestData(turns, startTs),
+    testData,
     failures,
   };
 }
@@ -115,4 +147,22 @@ function buildTestData(turns: TurnData[], startTs: number): TestData {
     startTs,
     endTs: Date.now(),
   };
+}
+
+function formatFailure(failure: AssertionResult, turnIndex?: number): string {
+  const prefix = turnIndex !== undefined ? `[Turn ${turnIndex}] ` : '';
+  let msg = `${prefix}${failure.assertion}`;
+  if (failure.expected) {
+    msg += ` (expected: ${failure.expected}`;
+    if (failure.actual) {
+      msg += `, got: ${failure.actual}`;
+    }
+    msg += ')';
+  } else if (failure.actual) {
+    msg += ` (got: ${failure.actual})`;
+  }
+  if (failure.details) {
+    msg += ` - ${failure.details}`;
+  }
+  return msg;
 }
