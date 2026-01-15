@@ -12,6 +12,7 @@ export interface RunOptions {
   config?: string;
   verbose?: boolean;
   dryRun?: boolean;
+  json?: boolean;
 }
 
 export const runCommand = new Command('run')
@@ -20,25 +21,35 @@ export const runCommand = new Command('run')
   .option('-c, --config <path>', 'Path to config file')
   .option('-v, --verbose', 'Verbose output')
   .option('-d, --dry-run', 'Validate tests without executing')
+  .option('--json', 'Output results as JSON')
   .action(async (patterns: string[], options: RunOptions) => {
     const verbose = options.verbose ?? false;
+    const jsonOutput = options.json ?? false;
+
+    // Helper for conditional console output (suppressed in JSON mode)
+    const log = jsonOutput ? () => {} : console.log;
+    const logError = jsonOutput ? () => {} : console.error;
 
     // Load project config
     if (verbose) {
-      console.log(pc.dim('Loading config...'));
+      log(pc.dim('Loading config...'));
     }
 
     let configResult;
     try {
       configResult = loadConfig({ configPath: options.config });
     } catch (err) {
-      console.error(pc.red('Error:'), (err as Error).message);
+      if (jsonOutput) {
+        console.log(JSON.stringify({ error: (err as Error).message }, null, 2));
+      } else {
+        logError(pc.red('Error:'), (err as Error).message);
+      }
       process.exit(1);
     }
 
     if (verbose) {
-      console.log(pc.dim(`Config loaded from: ${configResult.configPath}`));
-      console.log(pc.dim(`Endpoint: ${configResult.config.target.endpoint}`));
+      log(pc.dim(`Config loaded from: ${configResult.configPath}`));
+      log(pc.dim(`Endpoint: ${configResult.config.target.endpoint}`));
     }
 
     // Find test files
@@ -47,23 +58,31 @@ export const runCommand = new Command('run')
     const cwd = process.cwd();
 
     if (verbose) {
-      console.log(pc.dim(`Finding tests with patterns: ${testPatterns.join(', ')}`));
+      log(pc.dim(`Finding tests with patterns: ${testPatterns.join(', ')}`));
     }
 
     let testFiles;
     try {
       testFiles = await findTestFiles(testPatterns, cwd);
     } catch (err) {
-      console.error(pc.red('Error finding test files:'), (err as Error).message);
+      if (jsonOutput) {
+        console.log(JSON.stringify({ error: (err as Error).message }, null, 2));
+      } else {
+        logError(pc.red('Error finding test files:'), (err as Error).message);
+      }
       process.exit(1);
     }
 
     if (testFiles.length === 0) {
-      console.log(pc.yellow('No test files found.'));
+      if (jsonOutput) {
+        console.log(JSON.stringify({ tests: [], passed: 0, failed: 0 }, null, 2));
+      } else {
+        log(pc.yellow('No test files found.'));
+      }
       process.exit(0);
     }
 
-    console.log(pc.cyan(`Found ${testFiles.length} test file(s)\n`));
+    log(pc.cyan(`Found ${testFiles.length} test file(s)\n`));
 
     // Load and validate each test file
     let hasErrors = false;
@@ -74,78 +93,109 @@ export const runCommand = new Command('run')
         const { test } = loadTestFile(filePath);
         tests.push({ test, filePath });
         if (verbose) {
-          console.log(pc.green('  ✓'), pc.dim(filePath), pc.dim(`(${test.turns.length} turns)`));
+          log(pc.green('  ✓'), pc.dim(filePath), pc.dim(`(${test.turns.length} turns)`));
         }
       } catch (err) {
         hasErrors = true;
-        console.error(pc.red('  ✗'), filePath);
-        console.error(pc.red('   '), (err as Error).message);
+        logError(pc.red('  ✗'), filePath);
+        logError(pc.red('   '), (err as Error).message);
       }
     }
 
     if (hasErrors) {
-      console.error(pc.red('\nSome test files failed validation.'));
+      logError(pc.red('\nSome test files failed validation.'));
       process.exit(1);
     }
 
     // Dry run mode - just validate
     if (options.dryRun) {
-      console.log(pc.green(`\n✓ Validated ${tests.length} test(s)`));
-      for (const { test, filePath } of tests) {
-        console.log(`  - ${test.name} (${filePath})`);
+      if (jsonOutput) {
+        console.log(JSON.stringify({
+          validated: tests.map(t => ({ name: t.test.name, file: t.filePath })),
+        }, null, 2));
+      } else {
+        log(pc.green(`\n✓ Validated ${tests.length} test(s)`));
+        for (const { test, filePath } of tests) {
+          log(`  - ${test.name} (${filePath})`);
+        }
       }
       process.exit(0);
     }
 
     // Execute tests
-    console.log('');
+    log('');
     const results: TestResult[] = [];
     let passed = 0;
     let failed = 0;
 
     for (const { test, filePath } of tests) {
-      console.log(pc.cyan(`Running: ${test.name}`));
+      log(pc.cyan(`Running: ${test.name}`));
       if (verbose) {
-        console.log(pc.dim(`  File: ${filePath}`));
+        log(pc.dim(`  File: ${filePath}`));
       }
 
       try {
         const result = await runTest({
           config: configResult.config,
           test,
-          verbose,
-          onLog: (msg) => console.log(pc.dim(msg)),
+          verbose: verbose && !jsonOutput,
+          onLog: (msg) => log(pc.dim(msg)),
         });
 
-        results.push(result);
+        results.push({ ...result, filePath } as TestResult & { filePath: string });
 
         if (result.passed) {
           passed++;
-          console.log(pc.green(`  ✓ PASS`), pc.dim(`(${result.testData.endTs - result.testData.startTs}ms)`));
+          log(pc.green(`  ✓ PASS`), pc.dim(`(${result.testData.endTs - result.testData.startTs}ms)`));
         } else {
           failed++;
-          console.log(pc.red(`  ✗ FAIL`));
+          log(pc.red(`  ✗ FAIL`));
           if (result.error) {
-            console.log(pc.red(`    ${result.error}`));
+            log(pc.red(`    ${result.error}`));
           }
           for (const failure of result.failures) {
-            console.log(pc.red(`    - ${failure}`));
+            log(pc.red(`    - ${failure}`));
           }
         }
       } catch (err) {
         failed++;
-        console.log(pc.red(`  ✗ ERROR: ${(err as Error).message}`));
+        results.push({
+          testName: test.name,
+          passed: false,
+          error: (err as Error).message,
+          failures: [(err as Error).message],
+          filePath,
+        } as TestResult & { filePath: string });
+        log(pc.red(`  ✗ ERROR: ${(err as Error).message}`));
       }
-      console.log('');
+      log('');
     }
 
-    // Summary
-    console.log(pc.bold('─'.repeat(40)));
-    console.log(
-      pc.bold('Results:'),
-      pc.green(`${passed} passed`),
-      failed > 0 ? pc.red(`${failed} failed`) : pc.dim('0 failed')
-    );
+    // Output results
+    if (jsonOutput) {
+      const jsonResults = results.map((r: TestResult & { filePath?: string }) => ({
+        name: r.testName,
+        file: r.filePath,
+        passed: r.passed,
+        duration: r.testData ? r.testData.endTs - r.testData.startTs : null,
+        error: r.error,
+        failures: r.failures.length > 0 ? r.failures : undefined,
+      }));
+      console.log(JSON.stringify({
+        tests: jsonResults,
+        passed,
+        failed,
+        total: passed + failed,
+      }, null, 2));
+    } else {
+      // Summary
+      log(pc.bold('─'.repeat(40)));
+      log(
+        pc.bold('Results:'),
+        pc.green(`${passed} passed`),
+        failed > 0 ? pc.red(`${failed} failed`) : pc.dim('0 failed')
+      );
+    }
 
     process.exit(failed > 0 ? 1 : 0);
   });
