@@ -1,4 +1,5 @@
 import type { AssertionResult } from './types.js';
+import { matchesPattern } from './utils.js';
 
 export interface TextConstraints {
   must_match?: string;
@@ -15,7 +16,7 @@ export function assertText(
   const results: AssertionResult[] = [];
 
   if (constraints.must_match) {
-    if (!new RegExp(constraints.must_match).test(text)) {
+    if (!matchesPattern(text, constraints.must_match)) {
       results.push({
         passed: false,
         assertion: 'Text must match',
@@ -26,7 +27,7 @@ export function assertText(
   }
 
   if (constraints.must_not_match) {
-    if (new RegExp(constraints.must_not_match).test(text)) {
+    if (matchesPattern(text, constraints.must_not_match)) {
       results.push({
         passed: false,
         assertion: 'Text must not match',

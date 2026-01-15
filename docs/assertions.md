@@ -124,6 +124,25 @@ assert:
 
 This fails if `database_query` is called with `table` matching "users" AND result matching "password".
 
+## Regex Patterns
+
+All pattern matching (`args_match`, `result_match`, `must_match`, etc.) uses regex. By default, patterns are case-sensitive.
+
+**Regex flags:**
+
+Use `/pattern/flags` syntax for regex flags:
+
+```yaml
+args_match:
+  name: "/john/i"              # case insensitive
+  email: "john@example\\.com"  # default (case sensitive)
+
+text:
+  must_match: "/hello.*world/i"  # case insensitive
+```
+
+Supported flags: `g` (global), `i` (case insensitive), `m` (multiline), `s` (dotall), `u` (unicode), `y` (sticky).
+
 ### Text
 
 Validate assistant response text.

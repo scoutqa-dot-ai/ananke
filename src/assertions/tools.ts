@@ -1,6 +1,7 @@
 import type { ToolCall } from '../types/data.js';
 import type { RequireTool, ForbidCall, CountConstraint } from '../types/test.js';
 import type { AssertionResult } from './types.js';
+import { matchesPattern, stringify } from './utils.js';
 
 /**
  * Check if a tool is forbidden
@@ -59,17 +60,15 @@ export function assertRequiredTools(
 
     // Filter by result_match if specified
     if (req.result_match) {
-      const pattern = new RegExp(req.result_match);
       matchingCalls = matchingCalls.filter((call) =>
-        pattern.test(stringifyResult(call.result))
+        matchesPattern(call.result, req.result_match!)
       );
     }
 
     // Filter out by result_not_match if specified
     if (req.result_not_match) {
-      const pattern = new RegExp(req.result_not_match);
       matchingCalls = matchingCalls.filter(
-        (call) => !pattern.test(stringifyResult(call.result))
+        (call) => !matchesPattern(call.result, req.result_not_match!)
       );
     }
 
@@ -114,8 +113,7 @@ export function assertForbiddenCalls(
 
       // Check result_match condition
       if (shouldForbid && forbid.result_match) {
-        const resultStr = stringifyResult(call.result);
-        shouldForbid = new RegExp(forbid.result_match).test(resultStr);
+        shouldForbid = matchesPattern(call.result, forbid.result_match);
       }
 
       if (shouldForbid) {
@@ -127,7 +125,7 @@ export function assertForbiddenCalls(
             : forbid.result_match
               ? `result matched: /${forbid.result_match}/`
               : undefined,
-          actual: `called with result: ${stringifyResult(call.result)}`,
+          actual: `called with result: ${stringify(call.result)}`,
         });
       }
     }
@@ -191,39 +189,6 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   return current;
 }
 
-function assertArgsMatch(
-  toolName: string,
-  call: ToolCall,
-  argsMatch: Record<string, string>
-): AssertionResult[] {
-  const results: AssertionResult[] = [];
-
-  for (const [key, pattern] of Object.entries(argsMatch)) {
-    const value = getNestedValue(call.args, key);
-    if (value === undefined) {
-      results.push({
-        passed: false,
-        assertion: `Tool "${toolName}" arg "${key}" must match /${pattern}/`,
-        expected: `argument "${key}" present`,
-        actual: 'argument not found',
-      });
-      continue;
-    }
-
-    const valueStr = typeof value === 'string' ? value : JSON.stringify(value);
-    if (!new RegExp(pattern).test(valueStr)) {
-      results.push({
-        passed: false,
-        assertion: `Tool "${toolName}" arg "${key}" must match /${pattern}/`,
-        expected: `match /${pattern}/`,
-        actual: valueStr,
-      });
-    }
-  }
-
-  return results;
-}
-
 function checkArgsMatch(
   call: ToolCall,
   argsMatch: Record<string, string>
@@ -231,8 +196,7 @@ function checkArgsMatch(
   for (const [key, pattern] of Object.entries(argsMatch)) {
     const value = getNestedValue(call.args, key);
     if (value === undefined) return false;
-    const valueStr = typeof value === 'string' ? value : JSON.stringify(value);
-    if (!new RegExp(pattern).test(valueStr)) return false;
+    if (!matchesPattern(value, pattern)) return false;
   }
   return true;
 }
@@ -264,9 +228,4 @@ function assertOrdering(
   }
 
   return null;
-}
-
-function stringifyResult(result: unknown): string {
-  if (typeof result === 'string') return result;
-  return JSON.stringify(result);
 }
