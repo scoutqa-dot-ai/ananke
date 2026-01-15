@@ -1,15 +1,15 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 export const ProjectConfigSchema = z.object({
   target: z.object({
     endpoint: z.string().url(),
     headers: z.record(z.string()).optional(),
-    /** Agent ID for CopilotKit transport */
+
+    // AG-UI specific options
     agentId: z.string().optional(),
-    /** Initial state for the agent */
-    state: z.record(z.unknown()).optional(),
-    /** Forwarded props passed to the agent */
     forwardedProps: z.record(z.unknown()).optional(),
+    state: z.record(z.unknown()).optional(),
+    threadId: z.string().optional(),
   }),
 });
 

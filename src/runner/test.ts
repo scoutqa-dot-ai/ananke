@@ -69,21 +69,25 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
   const agentId = config.target.agentId
     ? interpolate(config.target.agentId, variables)
     : undefined;
-
-  // Interpolate forwardedProps
+  const threadId = config.target.threadId
+    ? interpolate(config.target.threadId, variables)
+    : undefined;
+  const state = config.target.state
+    ? interpolateObject(config.target.state, variables)
+    : undefined;
   const forwardedProps = config.target.forwardedProps
     ? interpolateObject(config.target.forwardedProps, variables)
     : undefined;
 
-  // Create client (threadId can come from variables, e.g., from hooks)
+  // Create client
   const client = new AGUIClient({
     endpoint,
     headers,
     agentId,
     onDebug: debug,
-    state: config.target.state,
+    state,
     forwardedProps,
-    threadId: variables.threadId,
+    threadId,
   });
 
   // Execute turns
