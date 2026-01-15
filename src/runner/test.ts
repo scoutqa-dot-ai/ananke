@@ -70,6 +70,11 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
     ? interpolate(config.target.agentId, variables)
     : undefined;
 
+  // Interpolate forwardedProps
+  const forwardedProps = config.target.forwardedProps
+    ? interpolateObject(config.target.forwardedProps, variables)
+    : undefined;
+
   // Create client
   const client = new AGUIClient({
     endpoint,
@@ -77,7 +82,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
     agentId,
     onDebug: debug,
     state: config.target.state,
-    forwardedProps: config.target.forwardedProps,
+    forwardedProps,
   });
 
   // Execute turns
