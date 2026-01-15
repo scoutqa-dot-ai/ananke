@@ -8,25 +8,56 @@ interface PendingToolCall {
   startTs: number;
 }
 
+interface TurnResult {
+  turnData: TurnData;
+  threadId?: string;
+}
+
 /**
- * Execute a single turn and collect data
+ * Execute a user message turn and collect data
  */
 export async function executeTurn(
   client: AGUIClient,
   userMessage: string,
   turnIndex: number,
   threadId?: string
-): Promise<{ turnData: TurnData; threadId?: string }> {
+): Promise<TurnResult> {
+  const events = client.sendMessage({
+    threadId,
+    message: userMessage,
+  });
+
+  return collectTurnData(events, turnIndex, threadId);
+}
+
+/**
+ * Execute a connect turn (no message, just observe) and collect data
+ */
+export async function executeConnectTurn(
+  client: AGUIClient,
+  turnIndex: number,
+  threadId?: string
+): Promise<TurnResult> {
+  const events = client.connect({
+    threadId,
+  });
+
+  return collectTurnData(events, turnIndex, threadId);
+}
+
+/**
+ * Collect turn data from an event stream
+ */
+async function collectTurnData(
+  events: AsyncGenerator<AGUIEvent>,
+  turnIndex: number,
+  threadId?: string
+): Promise<TurnResult> {
   const startTs = Date.now();
   const toolCalls: ToolCall[] = [];
   const pendingToolCalls = new Map<string, PendingToolCall>();
   let assistantText = '';
   let currentThreadId = threadId;
-
-  const events = client.sendMessage({
-    threadId,
-    message: userMessage,
-  });
 
   for await (const event of events) {
     currentThreadId = handleEvent(

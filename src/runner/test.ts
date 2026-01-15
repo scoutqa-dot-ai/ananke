@@ -2,7 +2,8 @@ import { AGUIClient } from '../client/index.js';
 import { executeHooks } from '../hooks/index.js';
 import { interpolate, interpolateObject, type Variables } from '../config/interpolate.js';
 import type { ProjectConfig, TestFile, TestData, TurnData } from '../types/index.js';
-import { executeTurn } from './turn.js';
+import { isUserTurn, isConnectTurn } from '../types/test.js';
+import { executeTurn, executeConnectTurn } from './turn.js';
 import {
   evaluateTurnAssertions,
   evaluateTestAssertions,
@@ -75,12 +76,24 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
 
   for (let i = 0; i < test.turns.length; i++) {
     const turn = test.turns[i];
-    const userMessage = interpolate(turn.user, variables);
-
-    if (verbose) log(`  Turn ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
 
     try {
-      const result = await executeTurn(client, userMessage, i, threadId);
+      let result: { turnData: TurnData; threadId?: string };
+
+      if (isConnectTurn(turn)) {
+        // Connect turn - no message, just observe
+        if (verbose) log(`  Turn ${i + 1}: [connect]`);
+        result = await executeConnectTurn(client, i, threadId);
+      } else if (isUserTurn(turn)) {
+        // User message turn
+        const userMessage = interpolate(turn.user, variables);
+        if (verbose) log(`  Turn ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
+        result = await executeTurn(client, userMessage, i, threadId);
+      } else {
+        // Should never happen due to Zod validation
+        throw new Error(`Unknown turn type at index ${i}`);
+      }
+
       turns.push(result.turnData);
       threadId = result.threadId;
 

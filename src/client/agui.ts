@@ -21,6 +21,12 @@ export interface SendMessageOptions {
   forwardedProps?: Record<string, unknown>;
 }
 
+export interface ConnectOptions {
+  threadId?: string;
+  /** Custom forwarded props for the request */
+  forwardedProps?: Record<string, unknown>;
+}
+
 const DEFAULT_MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
@@ -46,9 +52,48 @@ export class AGUIClient {
   }
 
   /**
-   * Send a message and stream events via SSE
+   * Send a message and stream events via SSE (agent/run)
    */
   async *sendMessage(options: SendMessageOptions): AsyncGenerator<AGUIEvent> {
+    const innerBody: Record<string, unknown> = {
+      threadId: options.threadId,
+      runId: randomUUID(),
+      messages: options.message
+        ? [{ id: randomUUID(), role: 'user', content: options.message }]
+        : [],
+    };
+
+    if (options.forwardedProps) {
+      innerBody.forwardedProps = options.forwardedProps;
+    }
+
+    yield* this.executeRequest('agent/run', innerBody);
+  }
+
+  /**
+   * Connect to existing thread without sending a message (agent/connect)
+   */
+  async *connect(options: ConnectOptions): AsyncGenerator<AGUIEvent> {
+    const innerBody: Record<string, unknown> = {
+      threadId: options.threadId,
+      runId: randomUUID(),
+      messages: [],
+    };
+
+    if (options.forwardedProps) {
+      innerBody.forwardedProps = options.forwardedProps;
+    }
+
+    yield* this.executeRequest('agent/connect', innerBody);
+  }
+
+  /**
+   * Execute a request to the AG-UI endpoint
+   */
+  private async *executeRequest(
+    method: string,
+    innerBody: Record<string, unknown>
+  ): AsyncGenerator<AGUIEvent> {
     const events: AGUIEvent[] = [];
     let receivedMeaningfulEvents = false;
 
@@ -57,22 +102,9 @@ export class AGUIClient {
       events.length = 0;
       receivedMeaningfulEvents = false;
 
-      // Build the request body
-      const innerBody: Record<string, unknown> = {
-        threadId: options.threadId,
-        runId: randomUUID(),
-        messages: options.message
-          ? [{ id: randomUUID(), role: 'user', content: options.message }]
-          : [],
-      };
-
-      if (options.forwardedProps) {
-        innerBody.forwardedProps = options.forwardedProps;
-      }
-
       // Wrap in CopilotKit envelope format
       const envelope = {
-        method: 'agent/run',
+        method,
         params: { agentId: this.agentId },
         body: innerBody,
       };

@@ -47,10 +47,20 @@ const HookSchema = z.object({
   timeout_ms: z.number().optional(),
 });
 
-const TurnSchema = z.object({
+// User message turn
+const UserTurnSchema = z.object({
+  type: z.literal('user').optional(),
   user: z.string(),
   assert: AssertBlockSchema.optional(),
 });
+
+// AG-UI connect turn (connect to existing thread without sending message)
+const ConnectTurnSchema = z.object({
+  type: z.literal('agui:connect'),
+  assert: AssertBlockSchema.optional(),
+});
+
+const TurnSchema = z.union([UserTurnSchema, ConnectTurnSchema]);
 
 export const TestFileSchema = z.object({
   name: z.string(),
@@ -62,7 +72,18 @@ export const TestFileSchema = z.object({
 export type AssertBlock = z.infer<typeof AssertBlockSchema>;
 export type TestFile = z.infer<typeof TestFileSchema>;
 export type Turn = z.infer<typeof TurnSchema>;
+export type UserTurn = z.infer<typeof UserTurnSchema>;
+export type ConnectTurn = z.infer<typeof ConnectTurnSchema>;
 export type Hook = z.infer<typeof HookSchema>;
 export type RequireTool = z.infer<typeof RequireToolSchema>;
 export type ForbidCall = z.infer<typeof ForbidCallSchema>;
 export type CountConstraint = z.infer<typeof CountSchema>;
+
+// Type guards
+export function isUserTurn(turn: Turn): turn is UserTurn {
+  return 'user' in turn;
+}
+
+export function isConnectTurn(turn: Turn): turn is ConnectTurn {
+  return turn.type === 'agui:connect';
+}
