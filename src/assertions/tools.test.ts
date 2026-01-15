@@ -73,6 +73,30 @@ describe('assertRequiredTools', () => {
     expect(results).toHaveLength(0);
   });
 
+  it('passes args_match when at least one call matches among multiple', () => {
+    const toolCalls = [
+      makeToolCall('tool', { query: 'hello world' }),
+      makeToolCall('tool', { query: 'goodbye world' }),
+    ];
+    const results = assertRequiredTools(toolCalls, [
+      { name: 'tool', args_match: { query: 'hello' } },
+    ]);
+    expect(results).toHaveLength(0);
+  });
+
+  it('checks count with args_match filters matching calls only', () => {
+    const toolCalls = [
+      makeToolCall('tool', { query: 'hello 1' }),
+      makeToolCall('tool', { query: 'hello 2' }),
+      makeToolCall('tool', { query: 'goodbye' }),
+    ];
+    // Require exactly 2 calls matching 'hello'
+    const results = assertRequiredTools(toolCalls, [
+      { name: 'tool', args_match: { query: 'hello' }, count: { exact: 2 } },
+    ]);
+    expect(results).toHaveLength(0);
+  });
+
   it('fails args_match when pattern does not match', () => {
     const toolCalls = [makeToolCall('tool', { query: 'goodbye' })];
     const results = assertRequiredTools(toolCalls, [
@@ -80,6 +104,8 @@ describe('assertRequiredTools', () => {
     ]);
     expect(results).toHaveLength(1);
     expect(results[0].passed).toBe(false);
+    expect(results[0].assertion).toContain('matching args');
+    expect(results[0].actual).toBe('0');
   });
 
   it('checks args_match with nested dot notation', () => {
@@ -105,7 +131,8 @@ describe('assertRequiredTools', () => {
     ]);
     expect(results).toHaveLength(1);
     expect(results[0].passed).toBe(false);
-    expect(results[0].actual).toBe('Jane');
+    expect(results[0].assertion).toContain('matching args');
+    expect(results[0].actual).toBe('0');
   });
 
   it('fails args_match when nested path does not exist', () => {
@@ -115,7 +142,8 @@ describe('assertRequiredTools', () => {
     ]);
     expect(results).toHaveLength(1);
     expect(results[0].passed).toBe(false);
-    expect(results[0].actual).toBe('argument not found');
+    expect(results[0].assertion).toContain('matching args');
+    expect(results[0].actual).toBe('0');
   });
 
   it('checks result_match', () => {

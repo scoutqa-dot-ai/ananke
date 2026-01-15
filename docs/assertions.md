@@ -47,11 +47,31 @@ assert:
 | Field              | Description                              |
 | ------------------ | ---------------------------------------- |
 | `name`             | Tool name (required)                     |
-| `count`            | Call count constraint                    |
-| `args_match`       | Regex patterns for arguments             |
-| `result_match`     | Regex pattern that result must match     |
-| `result_not_match` | Regex pattern that result must not match |
+| `count`            | Call count constraint (default: min 1)   |
+| `args_match`       | Regex patterns to filter by arguments    |
+| `result_match`     | Regex pattern to filter by result        |
+| `result_not_match` | Regex pattern to exclude by result       |
 | `after`            | Tool must be called after this tool      |
+
+**How filtering works:**
+
+The `args_match`, `result_match`, and `result_not_match` options filter the tool calls. The `count` constraint is then applied to the filtered calls. By default, at least 1 matching call is required.
+
+```yaml
+# Passes if at least 1 call has query matching "weather"
+require:
+  - name: search
+    args_match:
+      query: "weather"
+
+# Passes if exactly 2 calls have query matching "weather"
+require:
+  - name: search
+    args_match:
+      query: "weather"
+    count:
+      exact: 2
+```
 
 **Count constraints:**
 

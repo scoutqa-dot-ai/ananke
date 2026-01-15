@@ -36,9 +36,10 @@ export function assertRequiredTools(
   const results: AssertionResult[] = [];
 
   for (const req of required) {
-    const matchingCalls = toolCalls.filter((tc) => tc.name === req.name);
+    // Start with calls matching the tool name
+    let matchingCalls = toolCalls.filter((tc) => tc.name === req.name);
 
-    // Check if tool was called
+    // Check if tool was called at all
     if (matchingCalls.length === 0) {
       results.push({
         passed: false,
@@ -49,55 +50,34 @@ export function assertRequiredTools(
       continue;
     }
 
-    // Check count constraints
-    if (req.count) {
-      const countResult = assertCount(req.name, matchingCalls.length, req.count);
-      if (countResult) {
-        results.push(countResult);
-      }
-    }
-
-    // Check args_match
+    // Filter by args_match if specified
     if (req.args_match) {
-      for (const call of matchingCalls) {
-        const argsResult = assertArgsMatch(req.name, call, req.args_match);
-        results.push(...argsResult);
-      }
+      matchingCalls = matchingCalls.filter((call) =>
+        checkArgsMatch(call, req.args_match!)
+      );
     }
 
-    // Check result_match
+    // Filter by result_match if specified
     if (req.result_match) {
-      let anyMatch = false;
-      for (const call of matchingCalls) {
-        const resultStr = stringifyResult(call.result);
-        if (new RegExp(req.result_match).test(resultStr)) {
-          anyMatch = true;
-          break;
-        }
-      }
-      if (!anyMatch) {
-        results.push({
-          passed: false,
-          assertion: `Tool "${req.name}" result must match /${req.result_match}/`,
-          expected: `match /${req.result_match}/`,
-          actual: matchingCalls.map((c) => stringifyResult(c.result)).join(', '),
-        });
-      }
+      const pattern = new RegExp(req.result_match);
+      matchingCalls = matchingCalls.filter((call) =>
+        pattern.test(stringifyResult(call.result))
+      );
     }
 
-    // Check result_not_match
+    // Filter out by result_not_match if specified
     if (req.result_not_match) {
-      for (const call of matchingCalls) {
-        const resultStr = stringifyResult(call.result);
-        if (new RegExp(req.result_not_match).test(resultStr)) {
-          results.push({
-            passed: false,
-            assertion: `Tool "${req.name}" result must not match /${req.result_not_match}/`,
-            expected: `not match /${req.result_not_match}/`,
-            actual: resultStr,
-          });
-        }
-      }
+      const pattern = new RegExp(req.result_not_match);
+      matchingCalls = matchingCalls.filter(
+        (call) => !pattern.test(stringifyResult(call.result))
+      );
+    }
+
+    // Check count constraints (default: at least 1)
+    const count = req.count ?? { min: 1 };
+    const countResult = assertCount(req.name, matchingCalls.length, count, req.args_match);
+    if (countResult) {
+      results.push(countResult);
     }
 
     // Check ordering (after)
@@ -159,13 +139,16 @@ export function assertForbiddenCalls(
 function assertCount(
   toolName: string,
   count: number,
-  constraint: CountConstraint
+  constraint: CountConstraint,
+  argsMatch?: Record<string, string>
 ): AssertionResult | null {
+  const suffix = argsMatch ? ' matching args' : '';
+
   if ('exact' in constraint) {
     if (count !== constraint.exact) {
       return {
         passed: false,
-        assertion: `Tool "${toolName}" count`,
+        assertion: `Tool "${toolName}" count${suffix}`,
         expected: `exactly ${constraint.exact}`,
         actual: `${count}`,
       };
@@ -174,7 +157,7 @@ function assertCount(
     if (constraint.min !== undefined && count < constraint.min) {
       return {
         passed: false,
-        assertion: `Tool "${toolName}" count`,
+        assertion: `Tool "${toolName}" count${suffix}`,
         expected: `at least ${constraint.min}`,
         actual: `${count}`,
       };
@@ -182,7 +165,7 @@ function assertCount(
     if (constraint.max !== undefined && count > constraint.max) {
       return {
         passed: false,
-        assertion: `Tool "${toolName}" count`,
+        assertion: `Tool "${toolName}" count${suffix}`,
         expected: `at most ${constraint.max}`,
         actual: `${count}`,
       };
