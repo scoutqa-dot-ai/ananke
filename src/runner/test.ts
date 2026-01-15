@@ -1,21 +1,32 @@
+import { relative } from 'node:path';
 import { AGUIClient } from '../client/index.js';
-import { executeHooks } from '../hooks/index.js';
+import { executeHooks, executeHook } from '../hooks/index.js';
 import { interpolate, interpolateObject, type Variables } from '../config/interpolate.js';
 import type { ProjectConfig, TestFile, TestData, TurnData } from '../types/index.js';
 import { isUserTurn, isConnectTurn } from '../types/test.js';
-import { executeTurn, executeConnectTurn } from './turn.js';
+import { executeTurn, executeConnectTurn, collectTurnData } from './turn.js';
 import {
   evaluateTurnAssertions,
   evaluateTestAssertions,
   type AssertionResult,
 } from '../assertions/index.js';
+import {
+  getTestRecordingDir,
+  createRecordingGenerator,
+  recordHookOutput,
+  replayEvents,
+  loadHookOutput,
+} from '../recording/index.js';
 
 export interface TestRunnerOptions {
   config: ProjectConfig;
   test: TestFile;
+  testFilePath: string;
   verbose?: boolean;
   onLog?: (message: string) => void;
   onDebug?: (message: string) => void;
+  recordDir?: string;
+  replayDir?: string;
 }
 
 export interface TestResult {
@@ -30,7 +41,7 @@ export interface TestResult {
  * Run a single test file
  */
 export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
-  const { config, test, verbose, onLog, onDebug } = options;
+  const { config, test, testFilePath, verbose, onLog, onDebug, recordDir, replayDir } = options;
   const log = onLog ?? (() => {});
   const debug = onDebug ?? (() => {});
 
@@ -38,26 +49,63 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
   const turns: TurnData[] = [];
   const failures: string[] = [];
 
+  // Get recording directory for this test (use relative path)
+  const relativeTestPath = relative(process.cwd(), testFilePath);
+  const testRecordingDir = recordDir ? getTestRecordingDir(recordDir, relativeTestPath) : undefined;
+  const testReplayDir = replayDir ? getTestRecordingDir(replayDir, relativeTestPath) : undefined;
+
+  if (testReplayDir) {
+    debug(`[Replay] Loading from: ${testReplayDir}`);
+  } else if (testRecordingDir) {
+    debug(`[Record] Saving to: ${testRecordingDir}`);
+  }
+
   // Execute hooks and collect variables
   let variables: Variables = {};
   if (test.hooks && test.hooks.length > 0) {
-    if (verbose) log('  Executing hooks...');
-    try {
-      variables = await executeHooks(test.hooks, { onDebug: debug });
+    if (replayDir) {
+      // Replay mode: load hook outputs from files
+      if (verbose) log('  Loading hooks from recording...');
+      for (let i = 0; i < test.hooks.length; i++) {
+        const hookVars = await loadHookOutput(replayDir, relativeTestPath, i);
+        if (hookVars) {
+          Object.assign(variables, hookVars);
+        }
+      }
       if (verbose) {
         const varKeys = Object.keys(variables);
         if (varKeys.length > 0) {
           log(`  Variables: ${varKeys.join(', ')}`);
         }
       }
-    } catch (err) {
-      return {
-        testName: test.name,
-        passed: false,
-        testData: buildTestData(turns, startTs),
-        error: `Hook failed: ${(err as Error).message}`,
-        failures: [`Hook failed: ${(err as Error).message}`],
-      };
+    } else {
+      // Normal/record mode: execute hooks
+      if (verbose) log('  Executing hooks...');
+      try {
+        for (let i = 0; i < test.hooks.length; i++) {
+          const result = await executeHook(test.hooks[i], { currentVars: variables, onDebug: debug });
+          Object.assign(variables, result.variables);
+
+          // Record hook output if recording
+          if (testRecordingDir) {
+            await recordHookOutput(testRecordingDir, i, result.variables);
+          }
+        }
+        if (verbose) {
+          const varKeys = Object.keys(variables);
+          if (varKeys.length > 0) {
+            log(`  Variables: ${varKeys.join(', ')}`);
+          }
+        }
+      } catch (err) {
+        return {
+          testName: test.name,
+          passed: false,
+          testData: buildTestData(turns, startTs),
+          error: `Hook failed: ${(err as Error).message}`,
+          failures: [`Hook failed: ${(err as Error).message}`],
+        };
+      }
     }
   }
 
@@ -79,16 +127,18 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
     ? interpolateObject(config.target.forwardedProps, variables)
     : undefined;
 
-  // Create client
-  const client = new AGUIClient({
-    endpoint,
-    headers,
-    agentId,
-    onDebug: debug,
-    state,
-    forwardedProps,
-    threadId,
-  });
+  // Create client (only needed for non-replay mode)
+  const client = testReplayDir
+    ? undefined
+    : new AGUIClient({
+        endpoint,
+        headers,
+        agentId,
+        onDebug: debug,
+        state,
+        forwardedProps,
+        threadId,
+      });
 
   // Execute turns
   for (let i = 0; i < test.turns.length; i++) {
@@ -97,15 +147,35 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
     try {
       let turnData: TurnData;
 
-      if (isConnectTurn(turn)) {
+      if (testReplayDir) {
+        // Replay mode: load events from file
+        if (isConnectTurn(turn)) {
+          if (verbose) log(`  Turn ${i + 1}: [connect] (replay)`);
+        } else if (isUserTurn(turn)) {
+          const userMessage = interpolate(turn.user, variables);
+          if (verbose) log(`  Turn ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}" (replay)`);
+        }
+        const events = replayEvents(replayDir!, relativeTestPath, i);
+        turnData = await collectTurnData(events, i);
+      } else if (isConnectTurn(turn)) {
         // Connect turn - no message, just observe
         if (verbose) log(`  Turn ${i + 1}: [connect]`);
-        turnData = await executeConnectTurn(client, i);
+        if (testRecordingDir) {
+          const events = createRecordingGenerator(client!.connect(), testRecordingDir, i);
+          turnData = await collectTurnData(events, i);
+        } else {
+          turnData = await executeConnectTurn(client!, i);
+        }
       } else if (isUserTurn(turn)) {
         // User message turn
         const userMessage = interpolate(turn.user, variables);
         if (verbose) log(`  Turn ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
-        turnData = await executeTurn(client, userMessage, i);
+        if (testRecordingDir) {
+          const events = createRecordingGenerator(client!.sendMessage({ message: userMessage }), testRecordingDir, i);
+          turnData = await collectTurnData(events, i);
+        } else {
+          turnData = await executeTurn(client!, userMessage, i);
+        }
       } else {
         // Should never happen due to Zod validation
         throw new Error(`Unknown turn type at index ${i}`);

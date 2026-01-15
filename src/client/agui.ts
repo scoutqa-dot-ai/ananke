@@ -10,11 +10,11 @@ export interface AGUIClientOptions {
   endpoint: string;
   headers?: Record<string, string>;
   maxRetries?: number;
+  onDebug?: (message: string) => void;
 
   // AG-UI specific options
   agentId?: string;
   forwardedProps?: Record<string, unknown>;
-  onDebug?: (message: string) => void;
   state?: Record<string, unknown>;
   threadId?: string;
 }

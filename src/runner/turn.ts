@@ -34,7 +34,7 @@ export async function executeConnectTurn(
 /**
  * Collect turn data from an event stream
  */
-async function collectTurnData(
+export async function collectTurnData(
   events: AsyncGenerator<AGUIEvent>,
   turnIndex: number
 ): Promise<TurnData> {

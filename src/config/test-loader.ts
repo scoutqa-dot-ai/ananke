@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { glob } from 'node:fs/promises';
 import yaml from 'js-yaml';
@@ -46,7 +46,11 @@ export async function findTestFiles(
   for (const pattern of patterns) {
     const matches = glob(pattern, { cwd });
     for await (const match of matches) {
-      files.push(resolve(cwd, match));
+      const fullPath = resolve(cwd, match);
+      // Skip directories (e.g., recording directories that match *.test.yaml pattern)
+      if (statSync(fullPath).isFile()) {
+        files.push(fullPath);
+      }
     }
   }
 

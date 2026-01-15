@@ -14,6 +14,8 @@ export interface RunOptions {
   debug?: boolean;
   dryRun?: boolean;
   json?: boolean;
+  record?: string;
+  replay?: string;
 }
 
 export const runCommand = new Command('run')
@@ -24,10 +26,20 @@ export const runCommand = new Command('run')
   .option('--debug', 'Debug output (detailed request/response logs)')
   .option('-d, --dry-run', 'Validate tests without executing')
   .option('--json', 'Output results as JSON')
+  .option('--record <dir>', 'Record events to directory')
+  .option('--replay <dir>', 'Replay events from directory')
   .action(async (patterns: string[], options: RunOptions) => {
     const verbose = options.verbose ?? false;
     const debugMode = options.debug ?? false;
     const jsonOutput = options.json ?? false;
+    const recordDir = options.record;
+    const replayDir = options.replay;
+
+    // Validate mutually exclusive options
+    if (recordDir && replayDir) {
+      console.error(pc.red('Error: --record and --replay are mutually exclusive'));
+      process.exit(1);
+    }
 
     // Helper for conditional console output (suppressed in JSON mode)
     const log = jsonOutput ? () => {} : console.log;
@@ -141,9 +153,12 @@ export const runCommand = new Command('run')
         const result = await runTest({
           config: configResult.config,
           test,
+          testFilePath: filePath,
           verbose: verbose && !jsonOutput,
           onLog: (msg) => log(pc.dim(msg)),
           onDebug: debugMode && !jsonOutput ? (msg) => log(pc.dim(msg)) : undefined,
+          recordDir,
+          replayDir,
         });
 
         results.push({ ...result, filePath } as TestResult & { filePath: string });
