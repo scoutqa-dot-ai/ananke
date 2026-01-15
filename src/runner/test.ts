@@ -63,9 +63,12 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
   const headers = config.target.headers
     ? interpolateObject(config.target.headers, variables)
     : undefined;
+  const agentId = config.target.agentId
+    ? interpolate(config.target.agentId, variables)
+    : undefined;
 
   // Create client
-  const client = new AGUIClient({ endpoint, headers });
+  const client = new AGUIClient({ endpoint, headers, agentId });
 
   // Execute turns
   let threadId: string | undefined;

@@ -87,6 +87,7 @@ target:
   headers:
     Authorization: "Bearer ${ENV.AGUI_TOKEN}"
     X-Custom-Header: "value"
+  agentId: "my-agent"  # Optional, for CopilotKit transport
 ```
 
 Variables:

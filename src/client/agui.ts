@@ -3,38 +3,71 @@ import type { AGUIEvent } from './events.js';
 export interface AGUIClientOptions {
   endpoint: string;
   headers?: Record<string, string>;
+  /** Agent ID for CopilotKit transport (default: "ag-ui-agent") */
+  agentId?: string;
+  /** Max retries when no events received */
+  maxRetries?: number;
 }
 
 export interface SendMessageOptions {
   threadId?: string;
   message: string;
+  /** Custom forwarded props for the request */
+  forwardedProps?: Record<string, unknown>;
 }
+
+function generateId(): string {
+  return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+const DEFAULT_MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 1000;
 
 /**
  * AG-UI SSE client for communicating with AG-UI endpoints
+ * Supports CopilotKit single-route transport format
  */
 export class AGUIClient {
   private endpoint: string;
   private headers: Record<string, string>;
+  private agentId: string;
+  private maxRetries: number;
 
   constructor(options: AGUIClientOptions) {
     this.endpoint = options.endpoint;
     this.headers = options.headers ?? {};
+    this.agentId = options.agentId ?? 'ag-ui-agent';
+    this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
   }
 
   /**
    * Send a message and stream events via SSE
    */
   async *sendMessage(options: SendMessageOptions): AsyncGenerator<AGUIEvent> {
-    const body = JSON.stringify({
+    // Build the inner body (RunAgentInput)
+    const innerBody: Record<string, unknown> = {
       threadId: options.threadId,
       messages: [
         {
+          id: generateId(),
           role: 'user',
           content: options.message,
         },
       ],
-    });
+    };
+
+    if (options.forwardedProps) {
+      innerBody.forwardedProps = options.forwardedProps;
+    }
+
+    // Wrap in CopilotKit envelope format
+    const envelope = {
+      method: 'agent/run',
+      params: { agentId: this.agentId },
+      body: innerBody,
+    };
+
+    const body = JSON.stringify(envelope);
 
     const response = await fetch(this.endpoint, {
       method: 'POST',
