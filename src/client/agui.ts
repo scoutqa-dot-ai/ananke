@@ -12,6 +12,8 @@ export interface AGUIClientOptions {
   agentId?: string;
   /** Max retries when no events received */
   maxRetries?: number;
+  /** Debug callback for logging */
+  onDebug?: (message: string) => void;
 }
 
 export interface SendMessageOptions {
@@ -43,12 +45,14 @@ export class AGUIClient {
   private agentId: string;
   private maxRetries: number;
   private headers: Record<string, string>;
+  private debug: (message: string) => void;
 
   constructor(options: AGUIClientOptions) {
     this.endpoint = options.endpoint;
     this.agentId = options.agentId ?? 'ag-ui-agent';
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.headers = options.headers ?? {};
+    this.debug = options.onDebug ?? (() => {});
   }
 
   /**
@@ -119,6 +123,9 @@ export class AGUIClient {
         body: JSON.stringify(envelope),
       };
 
+      this.debug(`[AG-UI] ${method} -> ${this.endpoint}`);
+      this.debug(`[AG-UI] Request: ${JSON.stringify(envelope, null, 2)}`);
+
       try {
         const httpEvents = runHttpRequest(this.endpoint, requestInit);
         const eventStream = transformHttpEventStream(httpEvents);
@@ -128,12 +135,14 @@ export class AGUIClient {
           eventStream.subscribe({
             next: (event) => {
               receivedMeaningfulEvents = true;
+              this.debug(`[AG-UI] Event: ${event.type}`);
               const aguiEvent = convertToAGUIEvent(event);
               if (aguiEvent) {
                 events.push(aguiEvent);
               }
             },
             error: (err) => {
+              this.debug(`[AG-UI] Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
               events.push({
                 type: 'RUN_ERROR',
                 runId: '',
@@ -141,12 +150,16 @@ export class AGUIClient {
               });
               reject(err);
             },
-            complete: () => resolve(),
+            complete: () => {
+              this.debug(`[AG-UI] Stream complete (${events.length} events)`);
+              resolve();
+            },
           });
         });
 
         // If completed without receiving any meaningful events, retry
         if (!receivedMeaningfulEvents && attempt < this.maxRetries) {
+          this.debug(`[AG-UI] No events received, retrying (${attempt}/${this.maxRetries})...`);
           await sleep(RETRY_DELAY_MS);
           return executeStream(attempt + 1);
         }

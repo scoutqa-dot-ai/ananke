@@ -11,6 +11,7 @@ import { runTest, type TestResult } from '../../runner/index.js';
 export interface RunOptions {
   config?: string;
   verbose?: boolean;
+  debug?: boolean;
   dryRun?: boolean;
   json?: boolean;
 }
@@ -20,10 +21,12 @@ export const runCommand = new Command('run')
   .argument('[patterns...]', 'Test file patterns (glob)')
   .option('-c, --config <path>', 'Path to config file')
   .option('-v, --verbose', 'Verbose output')
+  .option('--debug', 'Debug output (detailed request/response logs)')
   .option('-d, --dry-run', 'Validate tests without executing')
   .option('--json', 'Output results as JSON')
   .action(async (patterns: string[], options: RunOptions) => {
     const verbose = options.verbose ?? false;
+    const debugMode = options.debug ?? false;
     const jsonOutput = options.json ?? false;
 
     // Helper for conditional console output (suppressed in JSON mode)
@@ -140,6 +143,7 @@ export const runCommand = new Command('run')
           test,
           verbose: verbose && !jsonOutput,
           onLog: (msg) => log(pc.dim(msg)),
+          onDebug: debugMode && !jsonOutput ? (msg) => log(pc.dim(msg)) : undefined,
         });
 
         results.push({ ...result, filePath } as TestResult & { filePath: string });

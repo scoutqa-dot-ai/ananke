@@ -15,6 +15,7 @@ export interface TestRunnerOptions {
   test: TestFile;
   verbose?: boolean;
   onLog?: (message: string) => void;
+  onDebug?: (message: string) => void;
 }
 
 export interface TestResult {
@@ -29,8 +30,9 @@ export interface TestResult {
  * Run a single test file
  */
 export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
-  const { config, test, verbose, onLog } = options;
+  const { config, test, verbose, onLog, onDebug } = options;
   const log = onLog ?? (() => {});
+  const debug = onDebug ?? (() => {});
 
   const startTs = Date.now();
   const turns: TurnData[] = [];
@@ -41,7 +43,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
   if (test.hooks && test.hooks.length > 0) {
     if (verbose) log('  Executing hooks...');
     try {
-      variables = await executeHooks(test.hooks);
+      variables = await executeHooks(test.hooks, { onDebug: debug });
       if (verbose) {
         const varKeys = Object.keys(variables);
         if (varKeys.length > 0) {
@@ -69,7 +71,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
     : undefined;
 
   // Create client
-  const client = new AGUIClient({ endpoint, headers, agentId });
+  const client = new AGUIClient({ endpoint, headers, agentId, onDebug: debug });
 
   // Execute turns
   let threadId: string | undefined;
