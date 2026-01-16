@@ -28,8 +28,12 @@ npx @scoutqa/ananke run
 Create `ananke.config.yaml` in your project root:
 
 ```yaml
+version: "1.0"
+
 target:
+  type: agui
   endpoint: "https://your-app.com/ag-ui"
+  agentId: "my-agent"
   headers:
     Authorization: "Bearer ${ENV.AGUI_TOKEN}"
 ```
@@ -39,6 +43,8 @@ target:
 Create `tests/example.test.yaml`:
 
 ```yaml
+version: "1.0"
+
 name: basic conversation
 
 turns:
@@ -82,12 +88,21 @@ Options:
 ### Project Config (`ananke.config.yaml`)
 
 ```yaml
+version: "1.0"
+
 target:
+  type: agui
   endpoint: "https://app.example.com/ag-ui"
+  agentId: "my-agent"
   headers:
     Authorization: "Bearer ${ENV.AGUI_TOKEN}"
     X-Custom-Header: "value"
-  agentId: "my-agent"  # Optional, for CopilotKit transport
+  # Optional: default assertions for all tests
+  assert:
+    timing:
+      max_duration_ms: 60000
+    text:
+      must_not_match: ["exception", "fatal"]
 ```
 
 Variables:
@@ -97,6 +112,8 @@ Variables:
 ## Test File Format
 
 ```yaml
+version: "1.0"
+
 name: test name
 
 hooks:  # Optional setup scripts
@@ -105,7 +122,7 @@ hooks:  # Optional setup scripts
 
 turns:
   - user: "User message"
-    assert:  # Turn-level assertions
+    assert:  # Turn-level assertions (inherits from target and test)
       tools:
         require:
           - name: tool_name
@@ -118,17 +135,18 @@ turns:
           - forbidden_tool
       timing:
         max_duration_ms: 30000
+        max_idle_ms: false  # Disable inherited idle check
       text:
         must_match: "regex"
-        must_not_match: "error"
+        must_not_match: ["error", "failed"]
 
-assert:  # Test-level assertions (after all turns)
+assert:  # Test-level assertions (inherits from target)
   tools:
     forbid:
       - dangerous_tool
   timing:
     max_duration_ms: 120000
-    max_gap_ms: 60000
+    max_idle_ms: 60000
 ```
 
 ## Assertions
@@ -151,14 +169,18 @@ assert:  # Test-level assertions (after all turns)
 | Assertion | Description |
 |-----------|-------------|
 | `max_duration_ms` | Maximum duration for turn/test |
-| `max_gap_ms` | Maximum gap between tool calls |
+| `max_idle_ms` | Maximum idle time (including start-to-first-tool, between tools, and last-tool-to-end) |
+
+Use `false` to disable an inherited timing constraint.
 
 ### Text Assertions
 
 | Assertion | Description |
 |-----------|-------------|
-| `must_match` | Regex that must match assistant text |
-| `must_not_match` | Regex that must NOT match |
+| `must_match` | Regex (or array of regexes) that must match assistant text |
+| `must_not_match` | Regex (or array of regexes) that must NOT match |
+
+Both `must_match` and `must_not_match` accept a single string or an array of strings.
 
 ## Hooks
 

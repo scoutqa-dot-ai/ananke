@@ -1,5 +1,9 @@
+version: "1.0"
+
 target:
+  type: agui
   endpoint: "https://app.example.com/ag-ui"
+  agentId: "my-agent"
   headers:
     Authorization: "Bearer ${ENV.AGUI_TOKEN}"
     X-Test-Client: "ananke/0.1"

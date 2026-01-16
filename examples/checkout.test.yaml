@@ -1,3 +1,5 @@
+version: "1.0"
+
 name: checkout flow with validation
 
 hooks:
@@ -38,4 +40,4 @@ assert:
       - delete_order
   timing:
     max_duration_ms: 120000
-    max_gap_ms: 60000
+    max_idle_ms: 60000

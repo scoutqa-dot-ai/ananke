@@ -1,9 +1,18 @@
 # Assertions
 
-Assertions validate the behavior of your AG-UI agent during tests. They can be applied at two levels:
+Assertions validate the behavior of your AG-UI agent during tests. They can be defined at three levels with inheritance:
 
-- **Turn-level**: Applied to a single turn (user message or connect)
-- **Test-level**: Applied across all turns in the test
+- **Target-level** (`target.assert` in config): Default assertions for all tests
+- **Test-level** (`assert` at test root): Inherits from target, applies after all turns
+- **Turn-level** (`assert` under turn): Inherits from target and test, applies immediately
+
+## Assertion Inheritance
+
+Assertions inherit from higher levels and can be overridden:
+
+- **Scalars** (timing values): Higher level overrides lower
+- **`false`**: Disables an inherited constraint
+- **Arrays** (forbid, require, must_match): Accumulate from all levels
 
 ## Assertion Categories
 
@@ -151,13 +160,15 @@ Validate assistant response text.
 assert:
   text:
     must_match: "hello.*world"
-    must_not_match: "error|failed"
+    must_not_match: ["error", "failed", "exception"]
 ```
 
-| Field            | Description                           |
-| ---------------- | ------------------------------------- |
-| `must_match`     | Regex pattern the text must match     |
-| `must_not_match` | Regex pattern the text must not match |
+| Field            | Description                                         |
+| ---------------- | --------------------------------------------------- |
+| `must_match`     | Regex (or array) that must match assistant text     |
+| `must_not_match` | Regex (or array) that must NOT match assistant text |
+
+Both fields accept a single string or an array of strings. Arrays accumulate across inheritance levels.
 
 For test-level assertions, text from all turns is combined with newlines.
 
@@ -169,13 +180,21 @@ Validate execution timing.
 assert:
   timing:
     max_duration_ms: 5000
-    max_gap_ms: 1000
+    max_idle_ms: 1000
 ```
 
-| Field             | Description                                |
-| ----------------- | ------------------------------------------ |
-| `max_duration_ms` | Maximum total duration in milliseconds     |
-| `max_gap_ms`      | Maximum gap between consecutive tool calls |
+| Field             | Description                                                                      |
+| ----------------- | -------------------------------------------------------------------------------- |
+| `max_duration_ms` | Maximum total duration in milliseconds                                           |
+| `max_idle_ms`     | Maximum idle time (start-to-first-tool, between tools, last-tool-to-end)         |
+
+Use `false` to disable an inherited timing constraint:
+
+```yaml
+assert:
+  timing:
+    max_idle_ms: false  # Disable inherited idle check
+```
 
 ## Turn vs Test Level
 
