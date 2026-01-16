@@ -1,7 +1,8 @@
 # Extensible Schema Implementation Plan
 
-> **Status:** Pending
+> **Status:** ✅ Implemented
 > **Target Version:** 1.0 (schema versioning foundation)
+> **Completed:** 2026-01-16
 
 ## Overview
 
@@ -446,46 +447,61 @@ If a template/example config exists, update it.
 
 ## Testing Checklist
 
-- [ ] Config with `version: "1.0"` and `type: agui` loads correctly
-- [ ] Target-level `assert` block works as defaults
-- [ ] Text assertions with array work
-- [ ] Timing: `max_idle_ms` checks all gaps (start-to-first, between, last-to-end)
-- [ ] Timing: `false` disables inherited constraint
-- [ ] Inheritance: target -> test -> turn for all assertion types
-- [ ] Inheritance: scalars override (timing values)
-- [ ] Inheritance: arrays extend (forbid, require, must_match accumulate)
-- [ ] All existing unit tests pass
-- [ ] Example test files execute successfully
+- [x] Config with `version: "1.0"` and `type: agui` loads correctly
+- [x] Target-level `assert` block works as defaults
+- [x] Text assertions with array work
+- [x] Timing: `max_idle_ms` checks all gaps (start-to-first, between, last-to-end)
+- [x] Timing: `false` disables inherited constraint
+- [x] Inheritance: target -> test -> turn for all assertion types
+- [x] Inheritance: scalars override (timing values)
+- [x] Inheritance: arrays extend (forbid, require, must_match accumulate)
+- [x] All existing unit tests pass (72 tests)
+- [x] Example test files updated
 
 ---
 
 ## File Change Summary
 
-| File                            | Change Type | Description                                                       |
-| ------------------------------- | ----------- | ----------------------------------------------------------------- |
-| `src/types/config.ts`           | Modify      | Add version, `assert` block, flat discriminated union with `type` |
-| `src/types/test.ts`             | Modify      | Add version, text assertions accept arrays                        |
-| `src/config/loader.ts`          | Modify      | Simple Zod validation                                             |
-| `src/config/interpolate.ts`     | Verify      | Confirm works with flat structure                                 |
-| `src/client/index.ts`           | Modify      | Add createClient factory                                          |
-| `src/client/types.ts`           | New         | Define ProtocolClient interface                                   |
-| `src/assertions/text.ts`        | Modify      | Handle array text assertions                                      |
-| `src/assertions/text.test.ts`   | Modify      | Add array test cases                                              |
-| `src/assertions/timing.ts`      | Modify      | Rename to `max_idle_ms`, fix gap coverage, support `false`        |
-| `src/assertions/timing.test.ts` | Modify      | Add tests for idle gaps, `false` disable                          |
-| `src/runner/merge.ts`           | New         | Assertion inheritance logic (target -> test -> turn)              |
-| `src/runner/test.ts`            | Modify      | Use client factory, use merged assertions                         |
-| `src/runner/turn.ts`            | Modify      | Pass merged assertions to evaluator                               |
-| `examples/checkout.test.yaml`   | Modify      | Add version, use `max_idle_ms`                                    |
+| File                            | Change Type | Status | Description                                                       |
+| ------------------------------- | ----------- | ------ | ----------------------------------------------------------------- |
+| `src/types/config.ts`           | Modify      | ✅     | Add version, `assert` block, flat discriminated union with `type` |
+| `src/types/test.ts`             | Modify      | ✅     | Add version, text assertions accept arrays                        |
+| `src/config/loader.ts`          | Verify      | ✅     | Already uses Zod validation (no changes needed)                   |
+| `src/config/interpolate.ts`     | Verify      | ✅     | Works with flat structure (no changes needed)                     |
+| `src/client/index.ts`           | Modify      | ✅     | Add createClient factory                                          |
+| `src/client/types.ts`           | New         | ✅     | Define ProtocolClient interface                                   |
+| `src/assertions/text.ts`        | Modify      | ✅     | Handle array text assertions                                      |
+| `src/assertions/text.test.ts`   | Modify      | ✅     | Add array test cases                                              |
+| `src/assertions/timing.ts`      | Modify      | ✅     | Rename to `max_idle_ms`, fix gap coverage, support `false`        |
+| `src/assertions/timing.test.ts` | Modify      | ✅     | Add tests for idle gaps, `false` disable                          |
+| `src/runner/merge.ts`           | New         | ✅     | Assertion inheritance logic (target -> test -> turn)              |
+| `src/runner/merge.test.ts`      | New         | ✅     | Tests for assertion merge logic                                   |
+| `src/runner/test.ts`            | Modify      | ✅     | Use client factory, use merged assertions                         |
+| `src/runner/turn.ts`            | Modify      | ✅     | Use ProtocolClient interface                                      |
+| `src/runner/index.ts`           | Modify      | ✅     | Export merge module                                               |
+| `examples/checkout.test.yaml`   | Modify      | ✅     | Add version, use `max_idle_ms`                                    |
+| `ananke.config.yaml`            | Modify      | ✅     | Add version, type, agentId                                        |
+| `README.md`                     | Modify      | ✅     | Update examples and docs                                          |
+| `docs/assertions.md`            | Modify      | ✅     | Document inheritance, max_idle_ms, arrays                         |
+| `docs/mvp.md`                   | Modify      | ✅     | Update spec for new schema                                        |
 
 ---
 
 ## Rollout Plan
 
-1. Implement all changes
-2. Run full test suite
-3. Update example files to new schema
+1. ✅ Implement all changes
+2. ✅ Run full test suite (72 tests passing)
+3. ✅ Update example files to new schema
 4. Release
+
+### Git Commits
+
+1. `refactor: update schema for extensibility and 3-level assertions`
+2. `docs: update spec for extensible schema and 3-level assertions`
+3. `feat: add protocol client factory for extensibility`
+4. `feat: add assertion inheritance and array text patterns`
+5. `refactor: integrate client factory and assertion merge in runner`
+6. `docs: update examples and docs for new schema`
 
 ---
 
