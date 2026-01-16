@@ -1,4 +1,4 @@
-# ispeakai
+# ananke
 
 Assertion-based testing tool for AG-UI applications.
 
@@ -12,20 +12,20 @@ Assertion-based testing tool for AG-UI applications.
 ## Installation
 
 ```bash
-npm install -g ispeakai
+npm install -g @scoutqa/ananke
 ```
 
 Or run directly with npx:
 
 ```bash
-npx ispeakai run
+npx @scoutqa/ananke run
 ```
 
 ## Quick Start
 
 ### 1. Create a config file
 
-Create `ispeakai.config.yaml` in your project root:
+Create `ananke.config.yaml` in your project root:
 
 ```yaml
 target:
@@ -56,13 +56,13 @@ turns:
 ### 3. Run tests
 
 ```bash
-ispeakai run
+ananke run
 ```
 
 ## CLI Usage
 
 ```
-Usage: ispeakai run [options] [patterns...]
+Usage: ananke run [options] [patterns...]
 
 Run test files
 
@@ -79,7 +79,7 @@ Options:
 
 ## Configuration
 
-### Project Config (`ispeakai.config.yaml`)
+### Project Config (`ananke.config.yaml`)
 
 ```yaml
 target:
@@ -177,7 +177,7 @@ Variables from hooks are available as `${VAR}` in the test.
 
 ```yaml
 - name: Run AG-UI tests
-  run: npx ispeakai run --json > results.json
+  run: npx @scoutqa/ananke run --json > results.json
   env:
     AGUI_TOKEN: ${{ secrets.AGUI_TOKEN }}
 

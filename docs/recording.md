@@ -19,10 +19,10 @@ Record AG-UI events from remote server, then replay locally to iterate on assert
 
 ```bash
 # Record events from remote server
-ispeakai run --record ./recordings/
+ananke run --record ./recordings/
 
 # Replay from saved events
-ispeakai run --replay ./recordings/
+ananke run --replay ./recordings/
 ```
 
 ## Directory Structure

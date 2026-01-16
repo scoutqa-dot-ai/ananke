@@ -3,7 +3,7 @@ import { resolve, dirname } from 'node:path';
 import yaml from 'js-yaml';
 import { ProjectConfigSchema, type ProjectConfig } from '../types/index.js';
 
-const CONFIG_FILENAME = 'ispeakai.config.yaml';
+const CONFIG_FILENAME = 'ananke.config.yaml';
 
 /**
  * Find config file by walking up from cwd

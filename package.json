@@ -1,10 +1,10 @@
 {
-  "name": "ispeakai",
+  "name": "@scoutqa/ananke",
   "version": "0.1.0",
   "description": "Assertion-based testing tool for AG-UI applications",
   "type": "module",
   "bin": {
-    "ispeakai": "./dist/index.js"
+    "ananke": "./dist/index.js"
   },
   "scripts": {
     "build": "tsup",

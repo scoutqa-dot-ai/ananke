@@ -2,4 +2,4 @@ target:
   endpoint: "https://app.example.com/ag-ui"
   headers:
     Authorization: "Bearer ${ENV.AGUI_TOKEN}"
-    X-Test-Client: "ispeakai/0.1"
+    X-Test-Client: "ananke/0.1"
