@@ -6,11 +6,16 @@
   "bin": {
     "ananke": "./dist/index.js"
   },
+  "files": [
+    "dist",
+    "!dist/*.map"
+  ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
     "test": "vitest",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "ag-ui",
@@ -23,19 +28,17 @@
   "engines": {
     "node": ">=18"
   },
-  "dependencies": {
+  "devDependencies": {
     "@ag-ui/client": "^0.0.43",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.10.5",
     "commander": "^12.1.0",
     "execa": "^9.5.2",
     "js-yaml": "^4.1.0",
     "picocolors": "^1.1.1",
-    "zod": "^3.24.1"
-  },
-  "devDependencies": {
-    "@types/js-yaml": "^4.0.9",
-    "@types/node": "^22.10.5",
     "tsup": "^8.3.5",
     "typescript": "^5.7.3",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "zod": "^3.24.1"
   }
 }
