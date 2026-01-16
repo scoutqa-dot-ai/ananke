@@ -1,6 +1,6 @@
-import type { AGUIClient } from '../client/index.js';
-import type { AGUIEvent } from '../client/events.js';
-import type { TurnData, ToolCall } from '../types/index.js';
+import type { ProtocolClient } from "../client/types.js";
+import type { AGUIEvent } from "../client/events.js";
+import type { TurnData, ToolCall } from "../types/index.js";
 
 interface PendingToolCall {
   name: string;
@@ -12,7 +12,7 @@ interface PendingToolCall {
  * Execute a user message turn and collect data
  */
 export async function executeTurn(
-  client: AGUIClient,
+  client: ProtocolClient,
   userMessage: string,
   turnIndex: number
 ): Promise<TurnData> {
@@ -24,9 +24,12 @@ export async function executeTurn(
  * Execute a connect turn (no message, just observe) and collect data
  */
 export async function executeConnectTurn(
-  client: AGUIClient,
+  client: ProtocolClient,
   turnIndex: number
 ): Promise<TurnData> {
+  if (!client.connect) {
+    throw new Error("Client does not support connect operation");
+  }
   const events = client.connect();
   return collectTurnData(events, turnIndex);
 }

@@ -1,22 +1,33 @@
-import { relative } from 'node:path';
-import { AGUIClient } from '../client/index.js';
-import { executeHooks, executeHook } from '../hooks/index.js';
-import { interpolate, interpolateObject, type Variables } from '../config/interpolate.js';
-import type { ProjectConfig, TestFile, TestData, TurnData } from '../types/index.js';
-import { isUserTurn, isConnectTurn } from '../types/test.js';
-import { executeTurn, executeConnectTurn, collectTurnData } from './turn.js';
+import { relative } from "node:path";
+import { createClient } from "../client/index.js";
+import type { ProtocolClient } from "../client/types.js";
+import { executeHook } from "../hooks/index.js";
+import {
+  interpolate,
+  interpolateObject,
+  type Variables,
+} from "../config/interpolate.js";
+import type {
+  ProjectConfig,
+  TestFile,
+  TestData,
+  TurnData,
+} from "../types/index.js";
+import { isUserTurn, isConnectTurn } from "../types/test.js";
+import { executeTurn, executeConnectTurn, collectTurnData } from "./turn.js";
+import { mergeAssertBlocks } from "./merge.js";
 import {
   evaluateTurnAssertions,
   evaluateTestAssertions,
   type AssertionResult,
-} from '../assertions/index.js';
+} from "../assertions/index.js";
 import {
   getTestRecordingDir,
   createRecordingGenerator,
   recordHookOutput,
   replayEvents,
   loadHookOutput,
-} from '../recording/index.js';
+} from "../recording/index.js";
 
 export interface TestRunnerOptions {
   config: ProjectConfig;
@@ -110,35 +121,12 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
   }
 
   // Interpolate config with variables
-  const endpoint = interpolate(config.target.endpoint, variables);
-  const headers = config.target.headers
-    ? interpolateObject(config.target.headers, variables)
-    : undefined;
-  const agentId = config.target.agentId
-    ? interpolate(config.target.agentId, variables)
-    : undefined;
-  const threadId = config.target.threadId
-    ? interpolate(config.target.threadId, variables)
-    : undefined;
-  const state = config.target.state
-    ? interpolateObject(config.target.state, variables)
-    : undefined;
-  const forwardedProps = config.target.forwardedProps
-    ? interpolateObject(config.target.forwardedProps, variables)
-    : undefined;
+  const interpolatedConfig = interpolateObject(config, variables) as ProjectConfig;
 
   // Create client (only needed for non-replay mode)
-  const client = testReplayDir
+  const client: ProtocolClient | undefined = testReplayDir
     ? undefined
-    : new AGUIClient({
-        endpoint,
-        headers,
-        agentId,
-        onDebug: debug,
-        state,
-        forwardedProps,
-        threadId,
-      });
+    : createClient(interpolatedConfig, { onDebug: debug });
 
   // Execute turns
   for (let i = 0; i < test.turns.length; i++) {
@@ -160,6 +148,9 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
       } else if (isConnectTurn(turn)) {
         // Connect turn - no message, just observe
         if (verbose) log(`  Turn ${i + 1}: [connect]`);
+        if (!client!.connect) {
+          throw new Error("Client does not support connect operation");
+        }
         if (testRecordingDir) {
           const events = createRecordingGenerator(client!.connect(), testRecordingDir, i);
           turnData = await collectTurnData(events, i);
@@ -188,9 +179,23 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
         log(`    Duration: ${turnData.endTs - turnData.startTs}ms`);
       }
 
-      // Evaluate turn-level assertions
-      if (turn.assert) {
-        const evalResult = evaluateTurnAssertions(turnData, turn.assert);
+      // Evaluate turn-level assertions (merged: target -> test -> turn)
+      const turnAssertions = mergeAssertBlocks(
+        interpolatedConfig.target.assert,
+        test.assert,
+        turn.assert
+      );
+      const hasAssertions =
+        turnAssertions.tools?.forbid?.length ||
+        turnAssertions.tools?.require?.length ||
+        turnAssertions.tools?.forbid_calls?.length ||
+        turnAssertions.timing?.max_duration_ms !== undefined ||
+        turnAssertions.timing?.max_idle_ms !== undefined ||
+        turnAssertions.text?.must_match?.length ||
+        turnAssertions.text?.must_not_match?.length;
+
+      if (hasAssertions) {
+        const evalResult = evaluateTurnAssertions(turnData, turnAssertions);
         if (!evalResult.passed) {
           for (const failure of evalResult.results) {
             const msg = formatFailure(failure, i + 1);
@@ -217,10 +222,24 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
     }
   }
 
-  // Evaluate test-level assertions
+  // Evaluate test-level assertions (merged: target -> test)
   const testData = buildTestData(turns, startTs);
-  if (test.assert) {
-    const evalResult = evaluateTestAssertions(testData, test.assert);
+  const testAssertions = mergeAssertBlocks(
+    interpolatedConfig.target.assert,
+    test.assert,
+    undefined
+  );
+  const hasTestAssertions =
+    testAssertions.tools?.forbid?.length ||
+    testAssertions.tools?.require?.length ||
+    testAssertions.tools?.forbid_calls?.length ||
+    testAssertions.timing?.max_duration_ms !== undefined ||
+    testAssertions.timing?.max_idle_ms !== undefined ||
+    testAssertions.text?.must_match?.length ||
+    testAssertions.text?.must_not_match?.length;
+
+  if (hasTestAssertions) {
+    const evalResult = evaluateTestAssertions(testData, testAssertions);
     if (!evalResult.passed) {
       for (const failure of evalResult.results) {
         const msg = formatFailure(failure);
