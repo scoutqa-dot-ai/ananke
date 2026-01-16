@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 const CountSchema = z.union([
   z.object({ exact: z.number() }),
@@ -26,14 +26,16 @@ const ToolsAssertSchema = z.object({
   forbid_calls: z.array(ForbidCallSchema).optional(),
 });
 
+// Timing constraints (can be disabled with false)
 const TimingAssertSchema = z.object({
-  max_duration_ms: z.number().optional(),
-  max_gap_ms: z.number().optional(),
+  max_duration_ms: z.union([z.number(), z.literal(false)]).optional(),
+  max_idle_ms: z.union([z.number(), z.literal(false)]).optional(),
 });
 
+// Text assertions (accept string or array)
 const TextAssertSchema = z.object({
-  must_match: z.string().optional(),
-  must_not_match: z.string().optional(),
+  must_match: z.union([z.string(), z.array(z.string())]).optional(),
+  must_not_match: z.union([z.string(), z.array(z.string())]).optional(),
 });
 
 export const AssertBlockSchema = z.object({
@@ -50,20 +52,21 @@ const HookSchema = z.object({
 
 // User message turn
 const UserTurnSchema = z.object({
-  type: z.literal('user').optional(),
+  type: z.literal("user").optional(),
   user: z.string(),
   assert: AssertBlockSchema.optional(),
 });
 
 // AG-UI connect turn (connect to existing thread without sending message)
 const ConnectTurnSchema = z.object({
-  type: z.literal('agui:connect'),
+  type: z.literal("agui:connect"),
   assert: AssertBlockSchema.optional(),
 });
 
 const TurnSchema = z.union([UserTurnSchema, ConnectTurnSchema]);
 
 export const TestFileSchema = z.object({
+  version: z.string().default("1.0"),
   name: z.string(),
   hooks: z.array(HookSchema).optional(),
   turns: z.array(TurnSchema).min(1),
@@ -79,12 +82,15 @@ export type Hook = z.infer<typeof HookSchema>;
 export type RequireTool = z.infer<typeof RequireToolSchema>;
 export type ForbidCall = z.infer<typeof ForbidCallSchema>;
 export type CountConstraint = z.infer<typeof CountSchema>;
+export type TimingAssert = z.infer<typeof TimingAssertSchema>;
+export type TextAssert = z.infer<typeof TextAssertSchema>;
+export type ToolsAssert = z.infer<typeof ToolsAssertSchema>;
 
 // Type guards
 export function isUserTurn(turn: Turn): turn is UserTurn {
-  return 'user' in turn;
+  return "user" in turn;
 }
 
 export function isConnectTurn(turn: Turn): turn is ConnectTurn {
-  return turn.type === 'agui:connect';
+  return turn.type === "agui:connect";
 }
