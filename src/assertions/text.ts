@@ -1,9 +1,17 @@
-import type { AssertionResult } from './types.js';
-import { matchesPattern } from './utils.js';
+import type { AssertionResult } from "./types.js";
+import { matchesPattern } from "./utils.js";
 
 export interface TextConstraints {
-  must_match?: string;
-  must_not_match?: string;
+  must_match?: string | string[];
+  must_not_match?: string | string[];
+}
+
+/**
+ * Normalize a value to an array
+ */
+function normalizeToArray(value: string | string[] | undefined): string[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
 }
 
 /**
@@ -14,25 +22,27 @@ export function assertText(
   constraints: TextConstraints
 ): AssertionResult[] {
   const results: AssertionResult[] = [];
+  const truncatedText =
+    text.length > 100 ? `${text.slice(0, 100)}...` : text;
 
-  if (constraints.must_match) {
-    if (!matchesPattern(text, constraints.must_match)) {
+  for (const pattern of normalizeToArray(constraints.must_match)) {
+    if (!matchesPattern(text, pattern)) {
       results.push({
         passed: false,
-        assertion: 'Text must match',
-        expected: `match /${constraints.must_match}/`,
-        actual: text.length > 100 ? `${text.slice(0, 100)}...` : text,
+        assertion: "Text must match",
+        expected: `match /${pattern}/`,
+        actual: truncatedText,
       });
     }
   }
 
-  if (constraints.must_not_match) {
-    if (matchesPattern(text, constraints.must_not_match)) {
+  for (const pattern of normalizeToArray(constraints.must_not_match)) {
+    if (matchesPattern(text, pattern)) {
       results.push({
         passed: false,
-        assertion: 'Text must not match',
-        expected: `not match /${constraints.must_not_match}/`,
-        actual: text.length > 100 ? `${text.slice(0, 100)}...` : text,
+        assertion: "Text must not match",
+        expected: `not match /${pattern}/`,
+        actual: truncatedText,
       });
     }
   }
