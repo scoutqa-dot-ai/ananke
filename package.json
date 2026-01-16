@@ -25,6 +25,17 @@
     "tools"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/scoutqa-dot-ai/ananke.git"
+  },
+  "homepage": "https://github.com/scoutqa-dot-ai/ananke#readme",
+  "bugs": {
+    "url": "https://github.com/scoutqa-dot-ai/ananke/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=18"
   },
