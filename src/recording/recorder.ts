@@ -1,12 +1,23 @@
-import { mkdir, writeFile, appendFile } from 'fs/promises';
-import { join, dirname } from 'path';
-import type { AGUIEvent } from '../client/events.js';
-import type { Variables } from '../config/interpolate.js';
+import { mkdir, writeFile, appendFile } from "fs/promises";
+import { join, dirname } from "path";
+import type { TimestampedEvent } from "../client/events.js";
+import type { Variables } from "../config/interpolate.js";
+
+/**
+ * Recorded event with timestamp
+ */
+interface RecordedEvent {
+  event: TimestampedEvent;
+  // Timestamp is already in event._ts, but we store it for clarity
+}
 
 /**
  * Get the recording directory path for a test file
  */
-export function getTestRecordingDir(baseDir: string, testFilePath: string): string {
+export function getTestRecordingDir(
+  baseDir: string,
+  testFilePath: string
+): string {
   return join(baseDir, testFilePath);
 }
 
@@ -37,11 +48,11 @@ export async function ensureRecordingDir(dirPath: string): Promise<void> {
 export async function recordEvent(
   testDir: string,
   turnIndex: number,
-  event: AGUIEvent
+  event: TimestampedEvent
 ): Promise<void> {
   const filePath = getTurnFilePath(testDir, turnIndex);
   await ensureRecordingDir(dirname(filePath));
-  await appendFile(filePath, JSON.stringify(event) + '\n');
+  await appendFile(filePath, JSON.stringify(event) + "\n");
 }
 
 /**
@@ -61,26 +72,27 @@ export async function recordHookOutput(
  * Create a recording wrapper for an event generator
  */
 export function createRecordingGenerator(
-  events: AsyncGenerator<AGUIEvent>,
+  events: AsyncGenerator<TimestampedEvent>,
   testDir: string,
   turnIndex: number
-): AsyncGenerator<AGUIEvent> {
+): AsyncGenerator<TimestampedEvent> {
   return recordEvents(events, testDir, turnIndex);
 }
 
 async function* recordEvents(
-  events: AsyncGenerator<AGUIEvent>,
+  events: AsyncGenerator<TimestampedEvent>,
   testDir: string,
   turnIndex: number
-): AsyncGenerator<AGUIEvent> {
+): AsyncGenerator<TimestampedEvent> {
   await ensureRecordingDir(testDir);
   const filePath = getTurnFilePath(testDir, turnIndex);
 
   // Clear/create the file
-  await writeFile(filePath, '');
+  await writeFile(filePath, "");
 
   for await (const event of events) {
-    await appendFile(filePath, JSON.stringify(event) + '\n');
+    // Store event with its timestamp (already in _ts field)
+    await appendFile(filePath, JSON.stringify(event) + "\n");
     yield event;
   }
 }

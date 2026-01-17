@@ -4,7 +4,7 @@ import {
   runHttpRequest,
   transformHttpEventStream,
 } from "@ag-ui/client";
-import type { AGUIEvent } from "./events.js";
+import type { AGUIEvent, TimestampedEvent } from "./events.js";
 
 export interface AGUIClientOptions {
   endpoint: string;
@@ -62,7 +62,9 @@ export class AGUIClient {
   /**
    * Send a message and stream events via SSE (agent/run)
    */
-  async *sendMessage(options: SendMessageOptions): AsyncGenerator<AGUIEvent> {
+  async *sendMessage(
+    options: SendMessageOptions
+  ): AsyncGenerator<TimestampedEvent> {
     const input: RunAgentInput = {
       context: [],
       forwardedProps: this.forwardedProps,
@@ -79,7 +81,7 @@ export class AGUIClient {
   /**
    * Connect to existing thread without sending a message (agent/connect)
    */
-  async *connect(): AsyncGenerator<AGUIEvent> {
+  async *connect(): AsyncGenerator<TimestampedEvent> {
     const input: RunAgentInput = {
       context: [],
       forwardedProps: this.forwardedProps,
@@ -99,8 +101,8 @@ export class AGUIClient {
   private async *executeRequest(
     method: string,
     input: RunAgentInput
-  ): AsyncGenerator<AGUIEvent> {
-    const events: AGUIEvent[] = [];
+  ): AsyncGenerator<TimestampedEvent> {
+    const events: TimestampedEvent[] = [];
     let receivedMeaningfulEvents = false;
 
     const executeStream = async (attempt: number): Promise<void> => {
@@ -140,7 +142,8 @@ export class AGUIClient {
               this.debug(`[AG-UI] Event: ${event.type}`);
               const aguiEvent = convertToAGUIEvent(event);
               if (aguiEvent) {
-                events.push(aguiEvent);
+                // Add timestamp at event arrival time
+                events.push({ ...aguiEvent, _ts: Date.now() });
               }
             },
             error: (err) => {
@@ -153,6 +156,7 @@ export class AGUIClient {
                 type: "RUN_ERROR",
                 runId: "",
                 message: err instanceof Error ? err.message : "Unknown error",
+                _ts: Date.now(),
               });
               reject(err);
             },
@@ -182,6 +186,7 @@ export class AGUIClient {
             type: "RUN_ERROR",
             runId: "",
             message: msg,
+            _ts: Date.now(),
           });
         }
       }

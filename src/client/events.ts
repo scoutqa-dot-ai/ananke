@@ -73,4 +73,9 @@ export type AGUIEvent =
   | ToolCallEndEvent
   | ToolCallResultEvent;
 
-export type AGUIEventType = AGUIEvent['type'];
+export type AGUIEventType = AGUIEvent["type"];
+
+/**
+ * Event with timestamp added at arrival time
+ */
+export type TimestampedEvent = AGUIEvent & { _ts: number };

@@ -1,4 +1,4 @@
-import type { AGUIEvent } from "./events.js";
+import type { TimestampedEvent } from "./events.js";
 
 /**
  * Options for sending a message to the protocol client
@@ -14,13 +14,13 @@ export interface ProtocolClient {
   /**
    * Send a user message and stream response events
    */
-  sendMessage(options: SendMessageOptions): AsyncGenerator<AGUIEvent>;
+  sendMessage(options: SendMessageOptions): AsyncGenerator<TimestampedEvent>;
 
   /**
    * Connect to existing thread/session without sending a message
    * Optional - not all protocols support this
    */
-  connect?(): AsyncGenerator<AGUIEvent>;
+  connect?(): AsyncGenerator<TimestampedEvent>;
 
   /**
    * Close the client connection

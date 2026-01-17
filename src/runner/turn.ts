@@ -1,5 +1,5 @@
 import type { ProtocolClient } from "../client/types.js";
-import type { AGUIEvent } from "../client/events.js";
+import type { TimestampedEvent } from "../client/events.js";
 import type { TurnData, ToolCall } from "../types/index.js";
 
 interface PendingToolCall {
@@ -36,53 +36,63 @@ export async function executeConnectTurn(
 
 /**
  * Collect turn data from an event stream
+ * Uses timestamps from events (arrival time) for accurate timing
  */
 export async function collectTurnData(
-  events: AsyncGenerator<AGUIEvent>,
+  events: AsyncGenerator<TimestampedEvent>,
   turnIndex: number
 ): Promise<TurnData> {
-  const startTs = Date.now();
   const toolCalls: ToolCall[] = [];
   const pendingToolCalls = new Map<string, PendingToolCall>();
-  let assistantText = '';
+  let assistantText = "";
+  let startTs: number | null = null;
+  let endTs: number | null = null;
 
   for await (const event of events) {
+    // Track first and last event timestamps
+    const eventTs = event._ts;
+    if (startTs === null) {
+      startTs = eventTs;
+    }
+    endTs = eventTs;
+
     handleEvent(event, toolCalls, pendingToolCalls, (text) => {
       assistantText += text;
     });
   }
 
-  const endTs = Date.now();
+  // Fallback to current time if no events received
+  const now = Date.now();
 
   return {
     turnIndex,
     toolCalls,
     assistantText,
-    startTs,
-    endTs,
+    startTs: startTs ?? now,
+    endTs: endTs ?? now,
   };
 }
 
 function handleEvent(
-  event: AGUIEvent,
+  event: TimestampedEvent,
   toolCalls: ToolCall[],
   pendingToolCalls: Map<string, PendingToolCall>,
   onText: (text: string) => void
 ): void {
   switch (event.type) {
-    case 'TEXT_MESSAGE_CONTENT':
+    case "TEXT_MESSAGE_CONTENT":
       onText(event.delta);
       break;
 
-    case 'TOOL_CALL_START':
+    case "TOOL_CALL_START":
       pendingToolCalls.set(event.toolCallId, {
         name: event.toolCallName,
-        argsBuffer: '',
-        startTs: Date.now(),
+        argsBuffer: "",
+        startTs: event._ts, // Use event timestamp
       });
       break;
 
-    case 'TOOL_CALL_ARGS': {
+    case "TOOL_CALL_ARGS": {
       const pending = pendingToolCalls.get(event.toolCallId);
       if (pending) {
         pending.argsBuffer += event.delta;
@@ -90,12 +100,12 @@ function handleEvent(
       break;
     }
 
-    case 'TOOL_CALL_RESULT': {
+    case "TOOL_CALL_RESULT": {
       const pending = pendingToolCalls.get(event.toolCallId);
       if (pending) {
         let args: Record<string, unknown> = {};
         try {
-          args = JSON.parse(pending.argsBuffer || '{}');
+          args = JSON.parse(pending.argsBuffer || "{}");
         } catch {
           // Keep empty args if parsing fails
         }
@@ -111,7 +121,7 @@ function handleEvent(
           name: pending.name,
           args,
           result,
-          timestamp: Date.now(),
+          timestamp: event._ts, // Use event timestamp
         });
 
         pendingToolCalls.delete(event.toolCallId);
@@ -119,7 +129,7 @@ function handleEvent(
       break;
     }
 
-    case 'RUN_ERROR':
+    case "RUN_ERROR":
       throw new Error(`AG-UI run error: ${event.message}`);
   }
 }
