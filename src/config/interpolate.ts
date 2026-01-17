@@ -13,7 +13,7 @@ export function interpolate(template: string, vars: Variables): string {
 }
 
 /**
- * Interpolate all string values in an object
+ * Interpolate all string values in an object or array
  */
 export function interpolateObject<T extends Record<string, unknown>>(
   obj: T,
@@ -21,13 +21,23 @@ export function interpolateObject<T extends Record<string, unknown>>(
 ): T {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(obj)) {
-    if (typeof value === 'string') {
-      result[key] = interpolate(value, vars);
-    } else if (typeof value === 'object' && value !== null) {
-      result[key] = interpolateObject(value as Record<string, unknown>, vars);
-    } else {
-      result[key] = value;
-    }
+    result[key] = interpolateValue(value, vars);
   }
   return result as T;
+}
+
+/**
+ * Interpolate a single value (string, array, object, or primitive)
+ */
+function interpolateValue(value: unknown, vars: Variables): unknown {
+  if (typeof value === 'string') {
+    return interpolate(value, vars);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => interpolateValue(item, vars));
+  }
+  if (typeof value === 'object' && value !== null) {
+    return interpolateObject(value as Record<string, unknown>, vars);
+  }
+  return value;
 }
