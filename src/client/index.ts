@@ -26,6 +26,7 @@ export function createClient(
         endpoint: target.endpoint,
         agentId: target.agentId,
         headers: target.headers,
+        timeout_ms: target.timeout_ms,
         threadId: target.threadId,
         forwardedProps: target.forwardedProps,
         state: target.state,

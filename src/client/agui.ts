@@ -10,6 +10,7 @@ export interface AGUIClientOptions {
   endpoint: string;
   headers?: Record<string, string>;
   maxRetries?: number;
+  timeout_ms?: number;
   onDebug?: (message: string) => void;
 
   // AG-UI specific options
@@ -25,6 +26,7 @@ export interface SendMessageOptions {
 
 const DEFAULT_MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
+const DEFAULT_TIMEOUT_MS = 120000; // 2 minutes
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -38,6 +40,7 @@ export class AGUIClient {
   private endpoint: string;
   private agentId: string;
   private maxRetries: number;
+  private timeout_ms: number;
   private headers: Record<string, string>;
   private debug: (message: string) => void;
   private state: Record<string, unknown> | undefined;
@@ -48,6 +51,7 @@ export class AGUIClient {
     this.endpoint = options.endpoint;
     this.agentId = options.agentId ?? "";
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
+    this.timeout_ms = options.timeout_ms ?? DEFAULT_TIMEOUT_MS;
     this.headers = options.headers ?? {};
     this.debug = options.onDebug ?? (() => {});
     this.state = options.state;
@@ -117,6 +121,12 @@ export class AGUIClient {
         body: input,
       };
 
+      // Set up timeout using AbortController
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+      }, this.timeout_ms);
+
       const requestInit: RequestInit = {
         method: "POST",
         headers: {
@@ -125,9 +135,10 @@ export class AGUIClient {
           ...this.headers,
         },
         body: JSON.stringify(envelope),
+        signal: controller.signal,
       };
 
-      this.debug(`[AG-UI] ${method} -> ${this.endpoint}`);
+      this.debug(`[AG-UI] ${method} -> ${this.endpoint} (timeout: ${this.timeout_ms}ms)`);
       this.debug(`[AG-UI] Request: ${JSON.stringify(envelope, null, 2)}`);
 
       try {
@@ -147,20 +158,24 @@ export class AGUIClient {
               }
             },
             error: (err) => {
-              this.debug(
-                `[AG-UI] Error: ${
-                  err instanceof Error ? err.message : "Unknown error"
-                }`
-              );
+              clearTimeout(timeoutId);
+              const isTimeout = err instanceof Error && err.name === "AbortError";
+              const message = isTimeout
+                ? `Request timed out after ${this.timeout_ms}ms`
+                : err instanceof Error
+                  ? err.message
+                  : "Unknown error";
+              this.debug(`[AG-UI] Error: ${message}`);
               events.push({
                 type: "RUN_ERROR",
                 runId: "",
-                message: err instanceof Error ? err.message : "Unknown error",
+                message,
                 _ts: Date.now(),
               });
               reject(err);
             },
             complete: () => {
+              clearTimeout(timeoutId);
               this.debug(`[AG-UI] Stream complete (${events.length} events)`);
               resolve();
             },
