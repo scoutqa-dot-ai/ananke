@@ -4,47 +4,47 @@ import { z } from "zod";
 const TimingSchema = z.object({
   max_duration_ms: z.union([z.number(), z.literal(false)]).optional(),
   max_idle_ms: z.union([z.number(), z.literal(false)]).optional(),
-});
+}).strict();
 
 // Text assertions (accept string or array)
 const TextAssertSchema = z.object({
   must_match: z.union([z.string(), z.array(z.string())]).optional(),
   must_not_match: z.union([z.string(), z.array(z.string())]).optional(),
-});
+}).strict();
 
 // Tool assertions
 const RequireToolSchema = z.object({
   name: z.string(),
   count: z
     .union([
-      z.object({ exact: z.number() }),
-      z.object({ min: z.number().optional(), max: z.number().optional() }),
+      z.object({ exact: z.number() }).strict(),
+      z.object({ min: z.number().optional(), max: z.number().optional() }).strict(),
     ])
     .optional(),
   args_match: z.record(z.string()).optional(),
   result_match: z.string().optional(),
   result_not_match: z.string().optional(),
   after: z.string().optional(),
-});
+}).strict();
 
 const ForbidCallSchema = z.object({
   name: z.string(),
   args_match: z.record(z.string()).optional(),
   result_match: z.string().optional(),
-});
+}).strict();
 
 const ToolsAssertSchema = z.object({
   forbid: z.array(z.string()).optional(),
   require: z.array(RequireToolSchema).optional(),
   forbid_calls: z.array(ForbidCallSchema).optional(),
-});
+}).strict();
 
 // AssertBlock schema (used at target, test, and turn levels)
 export const ConfigAssertBlockSchema = z.object({
   tools: ToolsAssertSchema.optional(),
   timing: TimingSchema.optional(),
   text: TextAssertSchema.optional(),
-});
+}).strict();
 
 // Common fields shared across all target types
 const CommonTargetFields = {
@@ -63,7 +63,7 @@ const AGUITargetSchema = z.object({
   threadId: z.string().optional(),
   forwardedProps: z.record(z.unknown()).optional(),
   state: z.record(z.unknown()).optional(),
-});
+}).strict();
 
 // Future: A2A target
 // const A2ATargetSchema = z.object({
@@ -83,9 +83,9 @@ const TargetSchema = z.discriminatedUnion("type", [
 ]);
 
 export const ProjectConfigSchema = z.object({
-  version: z.string().default("1.0"),
+  version: z.string(),
   target: TargetSchema,
-});
+}).strict();
 
 // Type exports
 export type AGUITarget = z.infer<typeof AGUITargetSchema>;

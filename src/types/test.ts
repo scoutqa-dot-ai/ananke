@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 const CountSchema = z.union([
-  z.object({ exact: z.number() }),
-  z.object({ min: z.number().optional(), max: z.number().optional() }),
+  z.object({ exact: z.number() }).strict(),
+  z.object({ min: z.number().optional(), max: z.number().optional() }).strict(),
 ]);
 
 const RequireToolSchema = z.object({
@@ -12,66 +12,66 @@ const RequireToolSchema = z.object({
   result_match: z.string().optional(),
   result_not_match: z.string().optional(),
   after: z.string().optional(),
-});
+}).strict();
 
 const ForbidCallSchema = z.object({
   name: z.string(),
   args_match: z.record(z.string()).optional(),
   result_match: z.string().optional(),
-});
+}).strict();
 
 const ToolsAssertSchema = z.object({
   forbid: z.array(z.string()).optional(),
   require: z.array(RequireToolSchema).optional(),
   forbid_calls: z.array(ForbidCallSchema).optional(),
-});
+}).strict();
 
 // Timing constraints (can be disabled with false)
 const TimingAssertSchema = z.object({
   max_duration_ms: z.union([z.number(), z.literal(false)]).optional(),
   max_idle_ms: z.union([z.number(), z.literal(false)]).optional(),
-});
+}).strict();
 
 // Text assertions (accept string or array)
 const TextAssertSchema = z.object({
   must_match: z.union([z.string(), z.array(z.string())]).optional(),
   must_not_match: z.union([z.string(), z.array(z.string())]).optional(),
-});
+}).strict();
 
 export const AssertBlockSchema = z.object({
   tools: ToolsAssertSchema.optional(),
   timing: TimingAssertSchema.optional(),
   text: TextAssertSchema.optional(),
-});
+}).strict();
 
 const HookSchema = z.object({
   cmd: z.array(z.string()),
   timeout_ms: z.number().optional(),
   env: z.record(z.string()).optional(),
-});
+}).strict();
 
 // User message turn
 const UserTurnSchema = z.object({
   type: z.literal("user").optional(),
   user: z.string(),
   assert: AssertBlockSchema.optional(),
-});
+}).strict();
 
 // AG-UI connect turn (connect to existing thread without sending message)
 const ConnectTurnSchema = z.object({
   type: z.literal("agui:connect"),
   assert: AssertBlockSchema.optional(),
-});
+}).strict();
 
 const TurnSchema = z.union([UserTurnSchema, ConnectTurnSchema]);
 
 export const TestFileSchema = z.object({
-  version: z.string().default("1.0"),
+  version: z.string(),
   name: z.string(),
   hooks: z.array(HookSchema).optional(),
   turns: z.array(TurnSchema).min(1),
   assert: AssertBlockSchema.optional(),
-});
+}).strict();
 
 export type AssertBlock = z.infer<typeof AssertBlockSchema>;
 export type TestFile = z.infer<typeof TestFileSchema>;
