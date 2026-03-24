@@ -1,99 +1,66 @@
-import type { AssertBlock, TimingAssert, TextAssert, ToolsAssert } from "../types/test.js";
+import type { AssertBlock } from "../types/test.js";
 import type { ConfigAssertBlock } from "../types/config.js";
+import { SELECTOR_KEYS } from "../assertions/selectors.js";
 
 /**
- * Normalize a value to an array
- */
-function normalizeToArray(value: string | string[] | undefined): string[] {
-  if (!value) return [];
-  return Array.isArray(value) ? value : [value];
-}
-
-/**
- * Merge timing assertions (scalars override, false disables)
- */
-function mergeTimingAssert(
-  ...levels: (TimingAssert | undefined)[]
-): TimingAssert {
-  const merged: TimingAssert = {};
-  for (const level of levels) {
-    if (level?.max_duration_ms !== undefined) {
-      merged.max_duration_ms = level.max_duration_ms;
-    }
-    if (level?.max_idle_ms !== undefined) {
-      merged.max_idle_ms = level.max_idle_ms;
-    }
-  }
-  return merged;
-}
-
-/**
- * Merge text assertions (arrays extend/accumulate)
- */
-function mergeTextAssert(
-  ...levels: (TextAssert | undefined)[]
-): TextAssert {
-  const mustMatch: string[] = [];
-  const mustNotMatch: string[] = [];
-
-  for (const level of levels) {
-    if (level?.must_match) {
-      mustMatch.push(...normalizeToArray(level.must_match));
-    }
-    if (level?.must_not_match) {
-      mustNotMatch.push(...normalizeToArray(level.must_not_match));
-    }
-  }
-
-  return {
-    must_match: mustMatch.length > 0 ? mustMatch : undefined,
-    must_not_match: mustNotMatch.length > 0 ? mustNotMatch : undefined,
-  };
-}
-
-/**
- * Merge tool assertions (arrays extend/accumulate)
- */
-function mergeToolsAssert(
-  ...levels: (ToolsAssert | undefined)[]
-): ToolsAssert {
-  const forbid: string[] = [];
-  const require: ToolsAssert["require"] = [];
-  const forbidCalls: ToolsAssert["forbid_calls"] = [];
-
-  for (const level of levels) {
-    if (level?.forbid) {
-      forbid.push(...level.forbid);
-    }
-    if (level?.require) {
-      require.push(...level.require);
-    }
-    if (level?.forbid_calls) {
-      forbidCalls.push(...level.forbid_calls);
-    }
-  }
-
-  return {
-    forbid: forbid.length > 0 ? forbid : undefined,
-    require: require.length > 0 ? require : undefined,
-    forbid_calls: forbidCalls.length > 0 ? forbidCalls : undefined,
-  };
-}
-
-/**
- * Merge assertion blocks from target -> test -> turn
- * - Scalars (timing values): Higher level overrides lower
- * - false: Disables the inherited constraint
- * - Arrays (forbid, require, must_match): Extend (accumulate from all levels)
+ * Merge assertion blocks from target -> test -> turn.
+ *
+ * In v2, assert blocks are trees. Merging strategy:
+ * - For each selector key, if multiple levels define it, wrap them in an implicit AND.
+ * - Top-level meta (or/and/not) are accumulated from all levels.
+ * - If only one level defines a selector, use it directly.
  */
 export function mergeAssertBlocks(
   target: ConfigAssertBlock | undefined,
   test: AssertBlock | undefined,
   turn: AssertBlock | undefined
 ): AssertBlock {
-  return {
-    tools: mergeToolsAssert(target?.tools, test?.tools, turn?.tools),
-    timing: mergeTimingAssert(target?.timing, test?.timing, turn?.timing),
-    text: mergeTextAssert(target?.text, test?.text, turn?.text),
-  };
+  const levels = [target, test, turn].filter(
+    (l): l is AssertBlock => l !== undefined && Object.keys(l).length > 0
+  );
+
+  if (levels.length === 0) return {};
+  if (levels.length === 1) return levels[0];
+
+  const merged: AssertBlock = {};
+
+  // Merge each selector key
+  for (const key of SELECTOR_KEYS) {
+    const nodes = levels
+      .map((l) => l[key as keyof AssertBlock])
+      .filter((n) => n !== undefined);
+
+    if (nodes.length === 0) continue;
+    if (nodes.length === 1) {
+      (merged as Record<string, unknown>)[key] = nodes[0];
+    } else {
+      // Wrap multiple nodes in an implicit AND
+      (merged as Record<string, unknown>)[key] = {
+        and: nodes,
+      };
+    }
+  }
+
+  // Accumulate top-level meta from all levels
+  const andBranches: AssertBlock[] = [];
+
+  for (const level of levels) {
+    if (level.and) {
+      andBranches.push(...(level.and as AssertBlock[]));
+    }
+    if (level.or) {
+      // Each level's `or` is an independent constraint, so we AND them together
+      // by treating each `or` as its own branch in the merged `and`
+      andBranches.push({ or: level.or as AssertBlock[] });
+    }
+    if (level.not) {
+      andBranches.push({ not: level.not as AssertBlock });
+    }
+  }
+
+  if (andBranches.length > 0) {
+    merged.and = andBranches;
+  }
+
+  return merged;
 }

@@ -99,8 +99,8 @@ target:
     X-Custom-Header: "value"
   # Optional: default assertions for all tests
   assert:
-    timing:
-      max_duration_ms: 60000
+    duration_ms:
+      max: 60000
     text:
       must_not_match: ["exception", "fatal"]
 ```
@@ -123,64 +123,59 @@ hooks:  # Optional setup scripts
 turns:
   - user: "User message"
     assert:  # Turn-level assertions (inherits from target and test)
+      tool_names:
+        some: { equals: "tool_name" }
+        none: { equals: "forbidden_tool" }
       tools:
-        require:
-          - name: tool_name
-            count: { exact: 1 }
-            args_match:
-              arg_name: "regex"
-            result_match: "regex"
-            after: other_tool
-        forbid:
-          - forbidden_tool
-      timing:
-        max_duration_ms: 30000
-        max_idle_ms: false  # Disable inherited idle check
+        some:
+          match:
+            name: { equals: "tool_name" }
+            args.arg_name: { must_match: "regex" }
+      duration_ms:
+        max: 30000
       text:
         must_match: "regex"
         must_not_match: ["error", "failed"]
 
 assert:  # Test-level assertions (inherits from target)
-  tools:
-    forbid:
-      - dangerous_tool
-  timing:
-    max_duration_ms: 120000
-    max_idle_ms: 60000
+  tool_names:
+    none: { equals: "dangerous_tool" }
+  duration_ms:
+    max: 120000
+  idle_ms:
+    max: 60000
 ```
 
 ## Assertions
 
-### Tool Assertions
+See [docs/assertions-v2.md](docs/assertions-v2.md) for the full assertion reference.
 
-| Assertion | Description |
-|-----------|-------------|
-| `forbid` | List of tools that must not be called |
-| `require.name` | Tool must be called |
-| `require.count` | `{ exact: N }` or `{ min: N, max: N }` |
-| `require.args_match` | Regex patterns for arguments |
-| `require.result_match` | Regex that must match result |
-| `require.result_not_match` | Regex that must NOT match result |
-| `require.after` | Tool must be called after another tool |
-| `forbid_calls` | Forbid calls matching args/result patterns |
+### Selectors
 
-### Timing Assertions
+| Selector | Type | Description |
+|----------|------|-------------|
+| `text` | string | Assistant response text |
+| `tool_names` | array | Tool call names |
+| `tools` | array | Full tool call objects |
+| `duration_ms` | number | Total duration |
+| `idle_ms` | number | Max idle gap |
 
-| Assertion | Description |
-|-----------|-------------|
-| `max_duration_ms` | Maximum duration for turn/test |
-| `max_idle_ms` | Maximum idle time (including start-to-first-tool, between tools, and last-tool-to-end) |
+### Common Operators
 
-Use `false` to disable an inherited timing constraint.
-
-### Text Assertions
-
-| Assertion | Description |
-|-----------|-------------|
-| `must_match` | Regex (or array of regexes) that must match assistant text |
-| `must_not_match` | Regex (or array of regexes) that must NOT match |
-
-Both `must_match` and `must_not_match` accept a single string or an array of strings.
+| Operator | Description |
+|----------|-------------|
+| `equals` | Exact match (string, number, boolean, null) |
+| `contains` | Substring match |
+| `must_match` | Regex pattern(s) that must all match |
+| `must_not_match` | Regex pattern(s) that must all NOT match |
+| `min`, `max`, `exact` | Number comparisons |
+| `count` | Number assertion on array length |
+| `some`, `every`, `none` | Element-level array assertions |
+| `ordered` | Elements appear in order |
+| `filter` | Keep matching elements, assert on sub-array |
+| `match` | Dot-path shorthand for object field assertions |
+| `json` | Parse JSON string (or pass through pre-parsed values) |
+| `and`, `or`, `not` | Logical combinators |
 
 ## Hooks
 

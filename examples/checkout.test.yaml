@@ -9,35 +9,40 @@ hooks:
 turns:
   - user: "I want to checkout"
     assert:
-      tools:
-        require:
-          - name: validate_cart
-          - name: get_shipping_options
-            after: validate_cart
-      timing:
-        max_duration_ms: 30000
+      tool_names:
+        ordered:
+          - equals: "validate_cart"
+          - equals: "get_shipping_options"
+      duration_ms:
+        max: 30000
 
   - user: "Use the first shipping option"
     assert:
       tools:
-        require:
-          - name: calculate_total
-            result_not_match: "error|failed"
+        some:
+          match:
+            name: { equals: "calculate_total" }
+            result:
+              json:
+                must_not_match: "error|failed"
 
   - user: "Confirm and pay"
     assert:
       tools:
-        require:
-          - name: charge_card
-            count: { exact: 1 }
-        forbid_calls:
-          - name: charge_card
-            result_match: "declined|insufficient"
+        filter:
+          match:
+            name: { equals: "charge_card" }
+        count: { exact: 1 }
+        none:
+          match:
+            result:
+              json:
+                must_match: "declined|insufficient"
 
 assert:
-  tools:
-    forbid:
-      - delete_order
-  timing:
-    max_duration_ms: 120000
-    max_idle_ms: 60000
+  tool_names:
+    none: { equals: "delete_order" }
+  duration_ms:
+    max: 120000
+  idle_ms:
+    max: 60000

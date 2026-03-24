@@ -2,112 +2,104 @@ import { describe, it, expect } from "vitest";
 import { mergeAssertBlocks } from "./merge.js";
 
 describe("mergeAssertBlocks", () => {
-  describe("timing inheritance", () => {
-    it("uses target timing when no overrides", () => {
+  describe("selector inheritance", () => {
+    it("uses target selector when no overrides", () => {
       const result = mergeAssertBlocks(
-        { timing: { max_duration_ms: 1000, max_idle_ms: 500 } },
+        { duration_ms: { max: 5000 } },
         undefined,
         undefined
       );
-      expect(result.timing?.max_duration_ms).toBe(1000);
-      expect(result.timing?.max_idle_ms).toBe(500);
+      expect(result.duration_ms).toEqual({ max: 5000 });
     });
 
-    it("test level overrides target level", () => {
+    it("uses test selector when no target", () => {
       const result = mergeAssertBlocks(
-        { timing: { max_duration_ms: 1000 } },
-        { timing: { max_duration_ms: 2000 } },
+        undefined,
+        { text: { must_match: "hello" } },
         undefined
       );
-      expect(result.timing?.max_duration_ms).toBe(2000);
+      expect(result.text).toEqual({ must_match: "hello" });
     });
 
-    it("turn level overrides test level", () => {
+    it("wraps multiple levels in implicit AND for same selector", () => {
       const result = mergeAssertBlocks(
-        { timing: { max_duration_ms: 1000 } },
-        { timing: { max_duration_ms: 2000 } },
-        { timing: { max_duration_ms: 3000 } }
+        { duration_ms: { max: 30000 } },
+        { duration_ms: { max: 15000 } },
+        undefined
       );
-      expect(result.timing?.max_duration_ms).toBe(3000);
+      expect(result.duration_ms).toEqual({
+        and: [{ max: 30000 }, { max: 15000 }],
+      });
     });
 
-    it("false disables inherited constraint", () => {
-      const result = mergeAssertBlocks(
-        { timing: { max_duration_ms: 1000 } },
-        undefined,
-        { timing: { max_duration_ms: false } }
-      );
-      expect(result.timing?.max_duration_ms).toBe(false);
-    });
-  });
-
-  describe("text inheritance", () => {
-    it("accumulates must_match from all levels", () => {
+    it("merges text from all three levels", () => {
       const result = mergeAssertBlocks(
         { text: { must_match: "target" } },
-        { text: { must_match: ["test1", "test2"] } },
+        { text: { must_match: "test" } },
         { text: { must_match: "turn" } }
       );
-      expect(result.text?.must_match).toEqual([
-        "target",
-        "test1",
-        "test2",
-        "turn",
-      ]);
+      expect(result.text).toEqual({
+        and: [
+          { must_match: "target" },
+          { must_match: "test" },
+          { must_match: "turn" },
+        ],
+      });
     });
 
-    it("accumulates must_not_match from all levels", () => {
+    it("preserves single selector without wrapping", () => {
       const result = mergeAssertBlocks(
-        { text: { must_not_match: ["error"] } },
-        { text: { must_not_match: "failed" } },
-        { text: { must_not_match: ["exception"] } }
+        undefined,
+        undefined,
+        { tools: { count: { exact: 0 } } }
       );
-      expect(result.text?.must_not_match).toEqual([
-        "error",
-        "failed",
-        "exception",
-      ]);
+      expect(result.tools).toEqual({ count: { exact: 0 } });
     });
   });
 
-  describe("tools inheritance", () => {
-    it("accumulates forbid from all levels", () => {
+  describe("different selectors from different levels", () => {
+    it("merges different selectors from different levels", () => {
       const result = mergeAssertBlocks(
-        { tools: { forbid: ["tool1"] } },
-        { tools: { forbid: ["tool2", "tool3"] } },
-        { tools: { forbid: ["tool4"] } }
+        { duration_ms: { max: 30000 } },
+        { text: { must_match: "hello" } },
+        { tools: { count: { min: 1 } } }
       );
-      expect(result.tools?.forbid).toEqual(["tool1", "tool2", "tool3", "tool4"]);
+      expect(result.duration_ms).toEqual({ max: 30000 });
+      expect(result.text).toEqual({ must_match: "hello" });
+      expect(result.tools).toEqual({ count: { min: 1 } });
     });
+  });
 
-    it("accumulates require from all levels", () => {
+  describe("top-level meta", () => {
+    it("accumulates or from multiple levels as and branches", () => {
       const result = mergeAssertBlocks(
-        { tools: { require: [{ name: "tool1" }] } },
-        { tools: { require: [{ name: "tool2", count: { exact: 1 } }] } },
+        {
+          or: [
+            { text: { must_match: "a" } },
+            { text: { must_match: "b" } },
+          ],
+        },
+        {
+          or: [
+            { tools: { count: { exact: 0 } } },
+            { tools: { count: { min: 1 } } },
+          ],
+        },
         undefined
       );
-      expect(result.tools?.require).toHaveLength(2);
-      expect(result.tools?.require?.[0].name).toBe("tool1");
-      expect(result.tools?.require?.[1].name).toBe("tool2");
-    });
-
-    it("accumulates forbid_calls from all levels", () => {
-      const result = mergeAssertBlocks(
-        { tools: { forbid_calls: [{ name: "tool1", args_match: { key: "val" } }] } },
-        { tools: { forbid_calls: [{ name: "tool2" }] } },
-        undefined
-      );
-      expect(result.tools?.forbid_calls).toHaveLength(2);
+      expect(result.and).toHaveLength(2);
     });
   });
 
   describe("empty merges", () => {
     it("returns empty object when all levels are undefined", () => {
       const result = mergeAssertBlocks(undefined, undefined, undefined);
-      expect(result.timing).toEqual({});
-      expect(result.text?.must_match).toBeUndefined();
-      expect(result.text?.must_not_match).toBeUndefined();
-      expect(result.tools?.forbid).toBeUndefined();
+      expect(result).toEqual({});
+    });
+
+    it("returns empty object when all levels are empty", () => {
+      const result = mergeAssertBlocks({}, {}, {});
+      expect(result).toEqual({});
     });
   });
 });

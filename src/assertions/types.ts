@@ -4,9 +4,9 @@ export interface AssertionResult {
   expected?: string;
   actual?: string;
   details?: string;
+  path?: string[];
 }
 
-export interface AssertionContext {
-  scope: 'turn' | 'test';
-  turnIndex?: number;
+export interface EvalContext {
+  path: string[];
 }

@@ -185,14 +185,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
         test.assert,
         turn.assert
       );
-      const hasAssertions =
-        turnAssertions.tools?.forbid?.length ||
-        turnAssertions.tools?.require?.length ||
-        turnAssertions.tools?.forbid_calls?.length ||
-        turnAssertions.timing?.max_duration_ms !== undefined ||
-        turnAssertions.timing?.max_idle_ms !== undefined ||
-        turnAssertions.text?.must_match?.length ||
-        turnAssertions.text?.must_not_match?.length;
+      const hasAssertions = Object.keys(turnAssertions).length > 0;
 
       if (hasAssertions) {
         const evalResult = evaluateTurnAssertions(turnData, turnAssertions);
@@ -229,14 +222,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
     test.assert,
     undefined
   );
-  const hasTestAssertions =
-    testAssertions.tools?.forbid?.length ||
-    testAssertions.tools?.require?.length ||
-    testAssertions.tools?.forbid_calls?.length ||
-    testAssertions.timing?.max_duration_ms !== undefined ||
-    testAssertions.timing?.max_idle_ms !== undefined ||
-    testAssertions.text?.must_match?.length ||
-    testAssertions.text?.must_not_match?.length;
+  const hasTestAssertions = Object.keys(testAssertions).length > 0;
 
   if (hasTestAssertions) {
     const evalResult = evaluateTestAssertions(testData, testAssertions);
@@ -272,7 +258,8 @@ function buildTestData(turns: TurnData[], startTs: number): TestData {
 
 function formatFailure(failure: AssertionResult, turnIndex?: number): string {
   const prefix = turnIndex !== undefined ? `[Turn ${turnIndex}] ` : '';
-  let msg = `${prefix}${failure.assertion}`;
+  const pathStr = failure.path?.length ? `${failure.path.join(' → ')}: ` : '';
+  let msg = `${prefix}${pathStr}${failure.assertion}`;
   if (failure.expected) {
     msg += ` (expected: ${failure.expected}`;
     if (failure.actual) {

@@ -1,50 +1,8 @@
 import { z } from "zod";
+import { AssertBlockSchema } from "./test.js";
 
-// Timing constraints (can be disabled with false)
-const TimingSchema = z.object({
-  max_duration_ms: z.union([z.number(), z.literal(false)]).optional(),
-  max_idle_ms: z.union([z.number(), z.literal(false)]).optional(),
-}).strict();
-
-// Text assertions (accept string or array)
-const TextAssertSchema = z.object({
-  must_match: z.union([z.string(), z.array(z.string())]).optional(),
-  must_not_match: z.union([z.string(), z.array(z.string())]).optional(),
-}).strict();
-
-// Tool assertions
-const RequireToolSchema = z.object({
-  name: z.string(),
-  count: z
-    .union([
-      z.object({ exact: z.number() }).strict(),
-      z.object({ min: z.number().optional(), max: z.number().optional() }).strict(),
-    ])
-    .optional(),
-  args_match: z.record(z.string()).optional(),
-  result_match: z.string().optional(),
-  result_not_match: z.string().optional(),
-  after: z.string().optional(),
-}).strict();
-
-const ForbidCallSchema = z.object({
-  name: z.string(),
-  args_match: z.record(z.string()).optional(),
-  result_match: z.string().optional(),
-}).strict();
-
-const ToolsAssertSchema = z.object({
-  forbid: z.array(z.string()).optional(),
-  require: z.array(RequireToolSchema).optional(),
-  forbid_calls: z.array(ForbidCallSchema).optional(),
-}).strict();
-
-// AssertBlock schema (used at target, test, and turn levels)
-export const ConfigAssertBlockSchema = z.object({
-  tools: ToolsAssertSchema.optional(),
-  timing: TimingSchema.optional(),
-  text: TextAssertSchema.optional(),
-}).strict();
+// Re-export AssertBlockSchema as ConfigAssertBlockSchema for config usage
+export const ConfigAssertBlockSchema = AssertBlockSchema;
 
 // Common fields shared across all target types
 const CommonTargetFields = {

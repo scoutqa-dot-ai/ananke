@@ -1,48 +1,118 @@
 import { z } from "zod";
 
-const CountSchema = z.union([
-  z.object({ exact: z.number() }).strict(),
-  z.object({ min: z.number().optional(), max: z.number().optional() }).strict(),
-]);
+// ---------------------------------------------------------------------------
+// Assertion Node — recursive type for the v2 assertion tree
+// ---------------------------------------------------------------------------
 
-const RequireToolSchema = z.object({
-  name: z.string(),
-  count: CountSchema.optional(),
-  args_match: z.record(z.string()).optional(),
-  result_match: z.string().optional(),
-  result_not_match: z.string().optional(),
-  after: z.string().optional(),
+const NumberAssertionSchema = z.object({
+  exact: z.number().optional(),
+  min: z.number().optional(),
+  max: z.number().optional(),
 }).strict();
 
-const ForbidCallSchema = z.object({
-  name: z.string(),
-  args_match: z.record(z.string()).optional(),
-  result_match: z.string().optional(),
-}).strict();
+// Forward-declare for recursive references
+type AssertionNodeInput = {
+  // String
+  equals?: string | number | boolean | null;
+  contains?: string;
+  starts_with?: string;
+  ends_with?: string;
+  must_match?: string | string[];
+  must_not_match?: string | string[];
+  // Number
+  exact?: number;
+  min?: number;
+  max?: number;
+  // Array
+  count?: AssertionNodeInput;
+  every?: AssertionNodeInput;
+  some?: AssertionNodeInput;
+  none?: AssertionNodeInput;
+  ordered?: AssertionNodeInput[];
+  filter?: AssertionNodeInput;
+  // Object
+  has_key?: string;
+  not_has_key?: string;
+  at?: { path: string; assert: AssertionNodeInput };
+  match?: Record<string, AssertionNodeInput>;
+  // Transform
+  json?: AssertionNodeInput;
+  // Meta
+  and?: AssertionNodeInput[];
+  or?: AssertionNodeInput[];
+  not?: AssertionNodeInput;
+};
 
-const ToolsAssertSchema = z.object({
-  forbid: z.array(z.string()).optional(),
-  require: z.array(RequireToolSchema).optional(),
-  forbid_calls: z.array(ForbidCallSchema).optional(),
-}).strict();
+const AssertionNodeSchema: z.ZodType<AssertionNodeInput> = z.lazy(() =>
+  z.object({
+    // String assertions
+    equals: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
+    contains: z.string().optional(),
+    starts_with: z.string().optional(),
+    ends_with: z.string().optional(),
+    must_match: z.union([z.string(), z.array(z.string())]).optional(),
+    must_not_match: z.union([z.string(), z.array(z.string())]).optional(),
+    // Number assertions
+    exact: z.number().optional(),
+    min: z.number().optional(),
+    max: z.number().optional(),
+    // Array assertions
+    count: AssertionNodeSchema.optional(),
+    every: AssertionNodeSchema.optional(),
+    some: AssertionNodeSchema.optional(),
+    none: AssertionNodeSchema.optional(),
+    ordered: z.array(AssertionNodeSchema).optional(),
+    filter: AssertionNodeSchema.optional(),
+    // Object assertions
+    has_key: z.string().optional(),
+    not_has_key: z.string().optional(),
+    at: z.object({
+      path: z.string(),
+      assert: AssertionNodeSchema,
+    }).strict().optional(),
+    match: z.record(AssertionNodeSchema).optional(),
+    // Transform
+    json: AssertionNodeSchema.optional(),
+    // Meta
+    and: z.array(AssertionNodeSchema).optional(),
+    or: z.array(AssertionNodeSchema).optional(),
+    not: AssertionNodeSchema.optional(),
+  }).strict()
+);
 
-// Timing constraints (can be disabled with false)
-const TimingAssertSchema = z.object({
-  max_duration_ms: z.union([z.number(), z.literal(false)]).optional(),
-  max_idle_ms: z.union([z.number(), z.literal(false)]).optional(),
-}).strict();
+// ---------------------------------------------------------------------------
+// Assert Block — top-level with selectors + meta combinators
+// ---------------------------------------------------------------------------
 
-// Text assertions (accept string or array)
-const TextAssertSchema = z.object({
-  must_match: z.union([z.string(), z.array(z.string())]).optional(),
-  must_not_match: z.union([z.string(), z.array(z.string())]).optional(),
-}).strict();
+type AssertBlockInput = {
+  text?: AssertionNodeInput;
+  tool_names?: AssertionNodeInput;
+  tools?: AssertionNodeInput;
+  duration_ms?: AssertionNodeInput;
+  idle_ms?: AssertionNodeInput;
+  or?: AssertBlockInput[];
+  and?: AssertBlockInput[];
+  not?: AssertBlockInput;
+};
 
-export const AssertBlockSchema = z.object({
-  tools: ToolsAssertSchema.optional(),
-  timing: TimingAssertSchema.optional(),
-  text: TextAssertSchema.optional(),
-}).strict();
+const AssertBlockSchema: z.ZodType<AssertBlockInput> = z.lazy(() =>
+  z.object({
+    text: AssertionNodeSchema.optional(),
+    tool_names: AssertionNodeSchema.optional(),
+    tools: AssertionNodeSchema.optional(),
+    duration_ms: AssertionNodeSchema.optional(),
+    idle_ms: AssertionNodeSchema.optional(),
+    or: z.array(AssertBlockSchema).optional(),
+    and: z.array(AssertBlockSchema).optional(),
+    not: AssertBlockSchema.optional(),
+  }).strict()
+);
+
+export { AssertBlockSchema };
+
+// ---------------------------------------------------------------------------
+// Test file structure
+// ---------------------------------------------------------------------------
 
 const HookSchema = z.object({
   cmd: z.array(z.string()),
@@ -74,17 +144,12 @@ export const TestFileSchema = z.object({
 }).strict();
 
 export type AssertBlock = z.infer<typeof AssertBlockSchema>;
+export type AssertionNode = z.infer<typeof AssertionNodeSchema>;
 export type TestFile = z.infer<typeof TestFileSchema>;
 export type Turn = z.infer<typeof TurnSchema>;
 export type UserTurn = z.infer<typeof UserTurnSchema>;
 export type ConnectTurn = z.infer<typeof ConnectTurnSchema>;
 export type Hook = z.infer<typeof HookSchema>;
-export type RequireTool = z.infer<typeof RequireToolSchema>;
-export type ForbidCall = z.infer<typeof ForbidCallSchema>;
-export type CountConstraint = z.infer<typeof CountSchema>;
-export type TimingAssert = z.infer<typeof TimingAssertSchema>;
-export type TextAssert = z.infer<typeof TextAssertSchema>;
-export type ToolsAssert = z.infer<typeof ToolsAssertSchema>;
 
 // Type guards
 export function isUserTurn(turn: Turn): turn is UserTurn {
