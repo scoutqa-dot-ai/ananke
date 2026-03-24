@@ -75,6 +75,10 @@ Transforms reshape data before assertions are applied. They do not produce pass/
 | `filter` | array → array | Keep elements matching a predicate, assert on sub-array |
 | `match` | object → (shorthand) | Dot-path keys for multiple field assertions on an object |
 
+**Note:** `filter` (listed under Array assertions) and `at`/`match` (listed under Object assertions) appear in both tables for discoverability, but they are transforms — they reshape data and delegate to nested assertions. They do not produce pass/fail themselves.
+
+Inside `match`, every key is interpreted as a dot-path into the object, never as an assertion operator. Even if an object has a field named `count` or `some`, `match` treats it as a field path, not an operator.
+
 ### Assertions
 
 Assertions evaluate a value and produce pass/fail.
@@ -130,6 +134,10 @@ All regex operators accept a single string or array of strings. Patterns use `/p
 
 Multiple keys at the same level are implicitly ANDed.
 
+## Error Aggregation
+
+When `and` (or implicit AND from multiple sibling keys) has multiple children and several fail, all failures are reported — not just the first. This gives the most actionable output.
+
 ## Type Checking
 
 Operators are type-specific. If an operator receives a value of the wrong type, the assertion **fails** with a clear error message describing the mismatch.
@@ -158,6 +166,18 @@ When a type mismatch occurs, the assertion result includes:
 ```
 
 This is a runtime check, not a schema validation. The assertion fails like any other failed assertion — it appears in the test results with a clear reason.
+
+### Null and Boolean Values
+
+`json` can parse `null`, `true`, `false`. Boolean and null values support `equals` only (strict equality). Any other operator on a boolean/null value produces a type mismatch failure.
+
+```yaml
+# Example error output:
+# FAIL: "must_match" expects string but got boolean
+#   at: tools → some → match → result → json → active
+#   value: true
+#   hint: use "equals" for boolean values
+```
 
 ## Transforms in Detail
 
@@ -225,6 +245,10 @@ If the value is not a valid JSON string, the assertion fails with "invalid JSON"
 ### `filter` — keep matching elements
 
 Filter an array to elements matching a predicate, then apply assertions on the resulting sub-array. The predicate uses the same assertion syntax.
+
+**Empty results:** `filter` always succeeds as a transform — it yields the (possibly empty) sub-array to downstream assertions. `every` on an empty array passes (vacuous truth). Use `count: { min: 1 }` alongside `filter` if you need to ensure at least one element matched.
+
+**Evaluation order:** When `filter` appears alongside other keys (like `count`, `every`) in an array context, `filter` runs first and its output replaces the input for all sibling assertions. This is the only case where sibling keys do not all receive the same input.
 
 ```yaml
 # Count tools matching a name
