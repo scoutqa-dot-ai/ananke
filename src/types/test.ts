@@ -10,8 +10,8 @@ const NumberAssertionSchema = z.object({
   max: z.number().optional(),
 }).strict();
 
-// Forward-declare for recursive references
-type AssertionNodeInput = {
+// Forward-declare for recursive references (exported for DTS generation)
+export type AssertionNodeInput = {
   // String
   equals?: string | number | boolean | null;
   contains?: string;
@@ -84,7 +84,7 @@ const AssertionNodeSchema: z.ZodType<AssertionNodeInput> = z.lazy(() =>
 // Assert Block — top-level with selectors + meta combinators
 // ---------------------------------------------------------------------------
 
-type AssertBlockInput = {
+export type AssertBlockInput = {
   text?: AssertionNodeInput;
   tool_names?: AssertionNodeInput;
   tools?: AssertionNodeInput;
