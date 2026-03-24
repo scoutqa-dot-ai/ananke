@@ -1,8 +1,11 @@
 import type { ProjectConfig, Target } from "../types/config.js";
 import { AGUIClient } from "./agui.js";
+import { AGUIWSSClient } from "./aguiwss.js";
 import type { ProtocolClient } from "./types.js";
 
 export * from "./agui.js";
+export { AGUIWSSClient } from "./aguiwss.js";
+export type { AGUIWSSClientOptions } from "./aguiwss.js";
 export * from "./events.js";
 export * from "./types.js";
 
@@ -30,6 +33,23 @@ export function createClient(
         threadId: target.threadId,
         forwardedProps: target.forwardedProps,
         state: target.state,
+        onDebug: options.onDebug,
+      });
+
+    case "aguiwss":
+      // TypeScript narrows target to AGUIWSSTarget here
+      return new AGUIWSSClient({
+        endpoint: target.endpoint,
+        agentId: target.agentId,
+        headers: target.headers,
+        timeout_ms: target.timeout_ms,
+        threadId: target.threadId,
+        forwardedProps: target.forwardedProps,
+        state: target.state,
+        wsUrl: target.wsUrl,
+        wsTopic: target.wsTopic,
+        wsHeaders: target.wsHeaders,
+        wsStompHeaders: target.wsStompHeaders,
         onDebug: options.onDebug,
       });
 

@@ -65,6 +65,23 @@ const AGUITargetSchema = z.object({
   state: z.record(z.unknown()).optional(),
 }).strict();
 
+// AG-UI over WebSocket/STOMP target
+const AGUIWSSTargetSchema = z.object({
+  type: z.literal("aguiwss"),
+  ...CommonTargetFields,
+  // HTTP endpoint for sending messages
+  endpoint: z.string().url(),
+  agentId: z.string(),
+  threadId: z.string().optional(),
+  forwardedProps: z.record(z.unknown()).optional(),
+  state: z.record(z.unknown()).optional(),
+  // WebSocket/STOMP options for receiving events
+  wsUrl: z.string().startsWith("wss://").or(z.string().startsWith("ws://")),
+  wsTopic: z.string().startsWith("/"),
+  wsHeaders: z.record(z.string()).optional(),
+  wsStompHeaders: z.record(z.string()).optional(),
+}).strict();
+
 // Future: A2A target
 // const A2ATargetSchema = z.object({
 //   type: z.literal("a2a"),
@@ -78,6 +95,7 @@ const AGUITargetSchema = z.object({
 // Discriminated union on "type" field
 const TargetSchema = z.discriminatedUnion("type", [
   AGUITargetSchema,
+  AGUIWSSTargetSchema,
   // A2ATargetSchema,
   // MCPTargetSchema,
 ]);
@@ -89,6 +107,7 @@ export const ProjectConfigSchema = z.object({
 
 // Type exports
 export type AGUITarget = z.infer<typeof AGUITargetSchema>;
+export type AGUIWSSTarget = z.infer<typeof AGUIWSSTargetSchema>;
 export type Target = z.infer<typeof TargetSchema>;
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
 export type ConfigAssertBlock = z.infer<typeof ConfigAssertBlockSchema>;
