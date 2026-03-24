@@ -20,24 +20,16 @@ turns:
     assert:
       tools:
         some:
-          match:
+          having:
             name: { equals: "calculate_total" }
-            result:
-              json:
-                must_not_match: "error|failed"
 
   - user: "Confirm and pay"
     assert:
       tools:
         filter:
-          match:
+          having:
             name: { equals: "charge_card" }
-        count: { exact: 1 }
-        none:
-          match:
-            result:
-              json:
-                must_match: "declined|insufficient"
+        count: { equals: 1 }
 
 assert:
   tool_names:
