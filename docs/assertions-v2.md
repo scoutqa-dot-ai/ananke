@@ -62,7 +62,7 @@ Selectors are the top-level keys in an assert block. Each extracts a typed value
 | `tool_names` | array\<string\> | `toolCalls.map(c => c.name)` |
 | `tools` | array\<object\> | `toolCalls` (full ToolCall objects) |
 | `duration_ms` | number | `endTs - startTs` |
-| `idle_ms` | number | max gap (start-to-first-tool, between tools, last-tool-to-end) |
+| `idle_ms` | number | max gap among: start-to-first-tool, between consecutive tools, last-tool-to-end. If zero tool calls, `idle_ms` = `endTs - startTs`. |
 
 ### Transforms
 
