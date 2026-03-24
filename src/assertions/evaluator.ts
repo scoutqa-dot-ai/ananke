@@ -84,12 +84,12 @@ export function evaluate(
     const childCtx: EvalContext = { path: [...ctx.path, key] };
 
     switch (key) {
-      // --- String assertions ---
+      // --- String / Array assertions ---
       case "equals":
         results.push(evalEquals(effectiveValue, operand, childCtx));
         break;
       case "contains":
-        results.push(evalContains(effectiveValue, operand as string, childCtx));
+        results.push(evalContains(effectiveValue, operand, childCtx));
         break;
       case "starts_with":
         results.push(
@@ -101,21 +101,13 @@ export function evaluate(
           evalEndsWith(effectiveValue, operand as string, childCtx)
         );
         break;
-      case "must_match":
+      case "matches":
         results.push(
-          ...evalMustMatch(effectiveValue, operand, childCtx)
-        );
-        break;
-      case "must_not_match":
-        results.push(
-          ...evalMustNotMatch(effectiveValue, operand, childCtx)
+          ...evalMatches(effectiveValue, operand, childCtx)
         );
         break;
 
       // --- Number assertions ---
-      case "exact":
-        results.push(evalExact(effectiveValue, operand as number, childCtx));
-        break;
       case "min":
         results.push(evalMin(effectiveValue, operand as number, childCtx));
         break;
@@ -162,25 +154,11 @@ export function evaluate(
       case "has_key":
         results.push(evalHasKey(effectiveValue, operand as string, childCtx));
         break;
-      case "not_has_key":
-        results.push(
-          evalNotHasKey(effectiveValue, operand as string, childCtx)
-        );
-        break;
 
       // --- Transforms ---
-      case "at":
+      case "having":
         results.push(
-          ...evalAt(
-            effectiveValue,
-            operand as { path: string; assert: AssertionNode },
-            childCtx
-          )
-        );
-        break;
-      case "match":
-        results.push(
-          ...evalMatch(
+          ...evalHaving(
             effectiveValue,
             operand as Record<string, AssertionNode>,
             childCtx
@@ -221,7 +199,7 @@ export function evaluate(
 }
 
 // ---------------------------------------------------------------------------
-// String assertions
+// String / Array assertions
 // ---------------------------------------------------------------------------
 
 function evalEquals(
@@ -241,11 +219,26 @@ function evalEquals(
 
 function evalContains(
   value: unknown,
-  expected: string,
+  expected: unknown,
   ctx: EvalContext
 ): AssertionResult {
+  // Array: sugar for some: { equals: expected }
+  if (Array.isArray(value)) {
+    const someResults = evalSome(value, { equals: expected }, ctx);
+    if (someResults.length === 0) {
+      return { passed: true, assertion: "contains", path: ctx.path };
+    }
+    return fail("contains", ctx, {
+      expected: `array contains ${stringify(expected)}`,
+      actual: `not found in array of ${value.length}`,
+    });
+  }
+  // String: substring check
   if (typeof value !== "string") {
-    return typeMismatch("contains", "string", value, ctx);
+    return typeMismatch("contains", "string or array", value, ctx);
+  }
+  if (typeof expected !== "string") {
+    return typeMismatch("contains", "string operand for string value", expected, ctx);
   }
   if (value.includes(expected)) {
     return { passed: true, assertion: "contains", path: ctx.path };
@@ -290,7 +283,7 @@ function evalEndsWith(
   });
 }
 
-function evalMustMatch(
+function evalMatches(
   value: unknown,
   patterns: unknown,
   ctx: EvalContext
@@ -298,7 +291,7 @@ function evalMustMatch(
   if (typeof value !== "string") {
     return [
       typeMismatch(
-        "must_match",
+        "matches",
         "string",
         value,
         ctx,
@@ -309,47 +302,11 @@ function evalMustMatch(
   const results: AssertionResult[] = [];
   for (const pattern of normalizeToArray(patterns)) {
     if (matchesPattern(value, pattern)) {
-      results.push({ passed: true, assertion: "must_match", path: ctx.path });
+      results.push({ passed: true, assertion: "matches", path: ctx.path });
     } else {
       results.push(
-        fail("must_match", ctx, {
+        fail("matches", ctx, {
           expected: `match /${pattern}/`,
-          actual: truncate(value),
-        })
-      );
-    }
-  }
-  return results;
-}
-
-function evalMustNotMatch(
-  value: unknown,
-  patterns: unknown,
-  ctx: EvalContext
-): AssertionResult[] {
-  if (typeof value !== "string") {
-    return [
-      typeMismatch(
-        "must_not_match",
-        "string",
-        value,
-        ctx,
-        'use "not: { equals: ... }" for non-string values'
-      ),
-    ];
-  }
-  const results: AssertionResult[] = [];
-  for (const pattern of normalizeToArray(patterns)) {
-    if (!matchesPattern(value, pattern)) {
-      results.push({
-        passed: true,
-        assertion: "must_not_match",
-        path: ctx.path,
-      });
-    } else {
-      results.push(
-        fail("must_not_match", ctx, {
-          expected: `not match /${pattern}/`,
           actual: truncate(value),
         })
       );
@@ -361,23 +318,6 @@ function evalMustNotMatch(
 // ---------------------------------------------------------------------------
 // Number assertions
 // ---------------------------------------------------------------------------
-
-function evalExact(
-  value: unknown,
-  expected: number,
-  ctx: EvalContext
-): AssertionResult {
-  if (typeof value !== "number") {
-    return typeMismatch("exact", "number", value, ctx);
-  }
-  if (value === expected) {
-    return { passed: true, assertion: "exact", path: ctx.path };
-  }
-  return fail("exact", ctx, {
-    expected: `${expected}`,
-    actual: `${value}`,
-  });
-}
 
 function evalMin(
   value: unknown,
@@ -564,63 +504,24 @@ function evalHasKey(
   });
 }
 
-function evalNotHasKey(
-  value: unknown,
-  key: string,
-  ctx: EvalContext
-): AssertionResult {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return typeMismatch("not_has_key", "object", value, ctx);
-  }
-  if (!Object.prototype.hasOwnProperty.call(value, key)) {
-    return { passed: true, assertion: "not_has_key", path: ctx.path };
-  }
-  return fail("not_has_key", ctx, {
-    expected: `key "${key}" does not exist`,
-    actual: `key "${key}" found`,
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Transforms
 // ---------------------------------------------------------------------------
 
-function evalAt(
-  value: unknown,
-  operand: { path: string; assert: AssertionNode },
-  ctx: EvalContext
-): AssertionResult[] {
-  if (typeof value !== "object" || value === null) {
-    return [typeMismatch("at", "object", value, ctx)];
-  }
-  const result = getNestedValue(value, operand.path);
-  if (!result.found) {
-    return [
-      fail("at", ctx, {
-        expected: `path "${operand.path}" exists`,
-        actual: "path not found",
-      }),
-    ];
-  }
-  return evaluate(result.value, operand.assert, {
-    path: [...ctx.path, operand.path],
-  });
-}
-
-function evalMatch(
+function evalHaving(
   value: unknown,
   fields: Record<string, AssertionNode>,
   ctx: EvalContext
 ): AssertionResult[] {
   if (typeof value !== "object" || value === null) {
-    return [typeMismatch("match", "object", value, ctx)];
+    return [typeMismatch("having", "object", value, ctx)];
   }
   const results: AssertionResult[] = [];
   for (const [dotPath, assertNode] of Object.entries(fields)) {
     const result = getNestedValue(value, dotPath);
     if (!result.found) {
       results.push(
-        fail("match", { path: [...ctx.path, dotPath] }, {
+        fail("having", { path: [...ctx.path, dotPath] }, {
           expected: `path "${dotPath}" exists`,
           actual: "path not found",
         })

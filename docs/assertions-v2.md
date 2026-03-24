@@ -1,4 +1,4 @@
-# Assertions v2 Proposal
+# Assertions v2
 
 ## Design Principles
 
@@ -70,14 +70,13 @@ Transforms reshape data before assertions are applied. They do not produce pass/
 
 | Transform | Input → Output | Description |
 |---|---|---|
-| `at` | object → any | Extract value at a dot-notation path |
 | `json` | string → any | Parse JSON string into structured data |
 | `filter` | array → array | Keep elements matching a predicate, assert on sub-array |
-| `match` | object → (shorthand) | Dot-path keys for multiple field assertions on an object |
+| `having` | object → (shorthand) | Dot-path keys for multiple field assertions on an object |
 
-**Note:** `filter` (listed under Array assertions) and `at`/`match` (listed under Object assertions) appear in both tables for discoverability, but they are transforms — they reshape data and delegate to nested assertions. They do not produce pass/fail themselves.
+**Note:** `filter` (listed under Array assertions) and `having` (listed under Object assertions) appear in both tables for discoverability, but they are transforms — they reshape data and delegate to nested assertions. They do not produce pass/fail themselves.
 
-Inside `match`, every key is interpreted as a dot-path into the object, never as an assertion operator. Even if an object has a field named `count` or `some`, `match` treats it as a field path, not an operator.
+Inside `having`, every key is interpreted as a dot-path into the object, never as an assertion operator. Even if an object has a field named `count` or `some`, `having` treats it as a field path, not an operator.
 
 ### Assertions
 
@@ -91,8 +90,7 @@ Assertions evaluate a value and produce pass/fail.
 | `contains` | Substring match |
 | `starts_with` | String prefix match |
 | `ends_with` | String suffix match |
-| `must_match` | Regex pattern(s) that must all match |
-| `must_not_match` | Regex pattern(s) that must all NOT match |
+| `matches` | Regex pattern(s) that must all match |
 
 All regex operators accept a single string or array of strings. Patterns use `/pattern/flags` syntax for regex flags (e.g. `/hello/i`).
 
@@ -100,7 +98,7 @@ All regex operators accept a single string or array of strings. Patterns use `/p
 
 | Operator | Description |
 |---|---|
-| `exact` | Equals this value |
+| `equals` | Equals this value |
 | `min` | Greater than or equal to |
 | `max` | Less than or equal to |
 
@@ -108,6 +106,7 @@ All regex operators accept a single string or array of strings. Patterns use `/p
 
 | Operator | Description |
 |---|---|
+| `contains` | Element exists in the array (sugar for `some: { equals: X }`) |
 | `count` | Number assertion on array length |
 | `every` | All elements must satisfy the assertion |
 | `some` | At least one element must satisfy the assertion |
@@ -120,9 +119,9 @@ All regex operators accept a single string or array of strings. Patterns use `/p
 | Operator | Description |
 |---|---|
 | `has_key` | Key exists on the object |
-| `not_has_key` | Key does not exist |
-| `at` | Transform: extract value at path, then apply assertions |
-| `match` | Transform: dot-path shorthand for multiple `at` assertions (implicit AND) |
+| `having` | Transform: dot-path shorthand for multiple field assertions (implicit AND) |
+
+Use `not: { has_key: "x" }` to assert a key does not exist.
 
 **Meta** — applies to any type:
 
@@ -149,7 +148,7 @@ For selectors, the type is always known:
 
 For transforms, the output type depends on the data at runtime:
 - `json` parses a string into any type (object, array, number, string, boolean)
-- `at` extracts a value of any type from an object
+- `having` extracts values of any type from an object
 
 When a type mismatch occurs, the assertion result includes:
 - The operator that failed
@@ -160,9 +159,9 @@ When a type mismatch occurs, the assertion result includes:
 ```yaml
 # Example error output:
 # FAIL: "min" expects number but got string
-#   at: tools → filter → match → result → json → status
+#   at: tools → filter → having → result → json → status
 #   value: "ok"
-#   hint: use "equals", "contains", or "must_match" for string values
+#   hint: use "equals", "contains", or "matches" for string values
 ```
 
 This is a runtime check, not a schema validation. The assertion fails like any other failed assertion — it appears in the test results with a clear reason.
@@ -173,35 +172,13 @@ This is a runtime check, not a schema validation. The assertion fails like any o
 
 ```yaml
 # Example error output:
-# FAIL: "must_match" expects string but got boolean
-#   at: tools → some → match → result → json → active
+# FAIL: "matches" expects string but got boolean
+#   at: tools → some → having → result → json → active
 #   value: true
 #   hint: use "equals" for boolean values
 ```
 
 ## Transforms in Detail
-
-### `at` — extract value at path
-
-Extract a nested value from an object using dot-notation. Supports array indexing with `[]`.
-
-```yaml
-# Full form
-tools:
-  some:
-    at:
-      path: "args.user.name"
-      assert: { equals: "John" }
-
-# Array indexing
-tools:
-  some:
-    at:
-      path: "args.items[0]"
-      assert: { equals: "first" }
-```
-
-If the path does not exist, the assertion fails with "path not found".
 
 ### `json` — parse JSON string
 
@@ -211,28 +188,28 @@ Parse a string value as JSON, then apply assertions on the parsed result. The pa
 # Parse tool result as JSON object, assert on fields
 tools:
   some:
-    match:
+    having:
       name: { equals: "search" }
       result:
         json:
-          match:
+          having:
             status: { equals: "ok" }
             items: { count: { min: 1 } }
 
 # Parse as JSON array
 tools:
   some:
-    match:
+    having:
       name: { equals: "list_items" }
       result:
         json:
           count: { min: 3 }
-          every: { must_match: "http.*" }
+          every: { matches: "http.*" }
 
 # Parse as JSON number
 tools:
   some:
-    match:
+    having:
       name: { equals: "get_score" }
       result:
         json:
@@ -254,63 +231,45 @@ Filter an array to elements matching a predicate, then apply assertions on the r
 # Count tools matching a name
 tools:
   filter:
-    match:
+    having:
       name: { equals: "search" }
-  count: { exact: 2 }
+  count: { equals: 2 }
 
 # Filter by multiple conditions, then assert on results
 tools:
   filter:
-    match:
+    having:
       name: { equals: "search" }
-      args.query: { must_match: "weather" }
-  count: { exact: 2 }
+      args.query: { matches: "weather" }
+  count: { equals: 2 }
   every:
-    match:
+    having:
       result:
         json:
-          match:
+          having:
             status: { equals: "ok" }
 ```
 
-### `match` — dot-path shorthand
+### `having` — dot-path shorthand
 
-Apply assertions to multiple fields of an object using dot-notation keys. Multiple keys are implicitly ANDed. This avoids verbose nested `at` blocks.
+Apply assertions to multiple fields of an object using dot-notation keys. Multiple keys are implicitly ANDed. Supports array indexing with `[]` notation.
 
 ```yaml
-# These are equivalent:
+# Assert on multiple fields
 tools:
   some:
-    match:
+    having:
       name: { equals: "search" }
-      args.query: { must_match: "weather" }
+      args.query: { matches: "weather" }
 
+# Array indexing
 tools:
   some:
-    and:
-      - at: { path: "name", assert: { equals: "search" } }
-      - at: { path: "args.query", assert: { must_match: "weather" } }
+    having:
+      args.items[0]: { equals: "first" }
 ```
 
-Inside `match`, every key is interpreted as a dot-path into the object. This avoids ambiguity with assertion operator names — `match` keys are always paths, never operators.
-
-## Backwards Compatibility
-
-The v2 assertion system replaces v1. The mapping from v1 to v2:
-
-| v1 | v2 |
-|---|---|
-| `text.must_match` | `text.must_match` (unchanged) |
-| `text.must_not_match` | `text.must_not_match` (unchanged) |
-| `timing.max_duration_ms: 5000` | `duration_ms: { max: 5000 }` |
-| `timing.max_idle_ms: 1000` | `idle_ms: { max: 1000 }` |
-| `timing.max_duration_ms: false` | omit `duration_ms` |
-| `tools.forbid: [X]` | `tool_names: { none: { equals: "X" } }` |
-| `tools.require: [{name: X}]` | `tool_names: { some: { equals: "X" } }` |
-| `tools.require: [{name: X, count: {exact: 2}}]` | `tools: { filter: { match: { name: { equals: "X" } } }, count: { exact: 2 } }` |
-| `tools.require: [{name: X, after: Y}]` | `tool_names: { ordered: [{ equals: "Y" }, { equals: "X" }] }` |
-| `tools.require: [{name: X, args_match: {k: v}}]` | `tools: { some: { match: { name: { equals: "X" }, args.k: { must_match: "v" } } } }` |
-| `tools.forbid_calls: [{name: X, args_match: {k: v}}]` | `tools: { none: { match: { name: { equals: "X" }, args.k: { must_match: "v" } } } }` |
+Inside `having`, every key is interpreted as a dot-path into the object. This avoids ambiguity with assertion operator names — `having` keys are always paths, never operators.
 
 ## Examples
 
@@ -319,11 +278,11 @@ The v2 assertion system replaces v1. The mapping from v1 to v2:
 ```yaml
 assert:
   text:
-    must_match:
+    matches:
       - "Kai"
       - "TestOps|TrueTest"
   tools:
-    count: { exact: 0 }
+    count: { equals: 0 }
 ```
 
 ### S2: Single tool use
@@ -335,7 +294,7 @@ turns:
       tool_names:
         some: { equals: "get_project_status" }
       text:
-        must_match: "status"
+        matches: "status"
       duration_ms:
         max: 15000
 ```
@@ -362,11 +321,11 @@ turns:
   - user: "Give me a comprehensive quality report for project P1"
     assert:
       tool_names:
-        some: { must_match: "get_.*_insights" }
-        none: { must_match: "stability_.*" }
+        some: { matches: "get_.*_insights" }
+        none: { matches: "stability_.*" }
         count: { min: 3 }
       text:
-        must_match: "report|analysis|insight"
+        matches: "report|analysis|insight"
       duration_ms:
         max: 60000
 ```
@@ -387,7 +346,7 @@ turns:
           - equals: "find_iterations"
           - equals: "generate_urls"
       text:
-        must_match: "http"
+        matches: "http"
 ```
 
 ### S8: Branching response (clarification vs draft)
@@ -398,11 +357,11 @@ turns:
     assert:
       or:
         - and:
-            - text: { must_match: "draft|report" }
-            - tool_names: { some: { must_match: "generate_urls" } }
+            - text: { matches: "draft|report" }
+            - tool_names: { some: { matches: "generate_urls" } }
         - and:
-            - text: { must_match: "clarif|which|specify" }
-            - tools: { count: { exact: 0 } }
+            - text: { matches: "clarif|which|specify" }
+            - tools: { count: { equals: 0 } }
 ```
 
 ### S9: Multi-turn with forbidden tools
@@ -412,9 +371,9 @@ turns:
   - user: "Tell me about Katalon TestOps"
     assert:
       tools:
-        count: { exact: 0 }
+        count: { equals: 0 }
       text:
-        must_match: "Kai"
+        matches: "Kai"
   - user: "Find test results for project ${ENV.PROJECT_ID}"
     assert:
       tool_names:
@@ -422,11 +381,25 @@ turns:
           - equals: "intent_agent"
           - equals: "find_iterations"
           - equals: "generate_urls"
-        none: { must_match: "stability_.*" }
+        none: { matches: "stability_.*" }
       text:
-        must_match: "http"
+        matches: "http"
       duration_ms:
         max: 30000
+```
+
+### Array contains — quick element check
+
+```yaml
+# Simple: is "search" in the tool names?
+assert:
+  tool_names:
+    contains: "search"
+
+# Equivalent to:
+assert:
+  tool_names:
+    some: { equals: "search" }
 ```
 
 ### Require pattern: tool called N times with specific args
@@ -436,10 +409,10 @@ turns:
 assert:
   tools:
     filter:
-      match:
+      having:
         name: { equals: "search" }
-        args.query: { must_match: "weather" }
-    count: { exact: 2 }
+        args.query: { matches: "weather" }
+    count: { equals: 2 }
 ```
 
 ### Forbid pattern: block specific tool+args combination
@@ -449,13 +422,13 @@ assert:
 assert:
   tools:
     none:
-      match:
+      having:
         name: { equals: "database_query" }
         args.table: { equals: "users" }
         result:
           json:
-            match:
-              data: { must_match: "password" }
+            having:
+              data: { matches: "password" }
 ```
 
 ### JSON tool results
@@ -465,11 +438,11 @@ assert:
 assert:
   tools:
     some:
-      match:
+      having:
         name: { equals: "get_report" }
         result:
           json:
-            match:
+            having:
               status: { equals: "ok" }
               items: { count: { min: 1 } }
               score:
@@ -484,13 +457,30 @@ assert:
 assert:
   tools:
     filter:
-      match:
-        name: { must_match: "get_.*" }
+      having:
+        name: { matches: "get_.*" }
     count: { min: 3 }
     every:
-      match:
+      having:
         result:
           json:
-            match:
+            having:
               status: { equals: "success" }
+```
+
+### Negation with `not`
+
+```yaml
+# Text must NOT match a pattern (replaces must_not_match)
+assert:
+  text:
+    not:
+      matches: "def sort|sorted\\("
+
+# Key must NOT exist (replaces not_has_key)
+assert:
+  tools:
+    some:
+      not:
+        has_key: "error"
 ```

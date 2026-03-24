@@ -51,12 +51,12 @@ turns:
   - user: "Hello, can you help me?"
     assert:
       text:
-        must_match: "help|assist"
+        matches: "help|assist"
 
   - user: "What's 2 + 2?"
     assert:
       text:
-        must_match: "4"
+        matches: "4"
 ```
 
 ### 3. Run tests
@@ -102,7 +102,8 @@ target:
     duration_ms:
       max: 60000
     text:
-      must_not_match: ["exception", "fatal"]
+      not:
+        matches: ["exception", "fatal"]
 ```
 
 Variables:
@@ -128,14 +129,15 @@ turns:
         none: { equals: "forbidden_tool" }
       tools:
         some:
-          match:
+          having:
             name: { equals: "tool_name" }
-            args.arg_name: { must_match: "regex" }
+            args.arg_name: { matches: "regex" }
       duration_ms:
         max: 30000
       text:
-        must_match: "regex"
-        must_not_match: ["error", "failed"]
+        matches: "regex"
+        not:
+          matches: ["error", "failed"]
 
 assert:  # Test-level assertions (inherits from target)
   tool_names:
@@ -165,15 +167,14 @@ See [docs/assertions-v2.md](docs/assertions-v2.md) for the full assertion refere
 | Operator | Description |
 |----------|-------------|
 | `equals` | Exact match (string, number, boolean, null) |
-| `contains` | Substring match |
-| `must_match` | Regex pattern(s) that must all match |
-| `must_not_match` | Regex pattern(s) that must all NOT match |
-| `min`, `max`, `exact` | Number comparisons |
+| `contains` | Substring (string) or element membership (array) |
+| `matches` | Regex pattern(s) that must all match |
+| `min`, `max` | Number comparisons |
 | `count` | Number assertion on array length |
 | `some`, `every`, `none` | Element-level array assertions |
 | `ordered` | Elements appear in order |
 | `filter` | Keep matching elements, assert on sub-array |
-| `match` | Dot-path shorthand for object field assertions |
+| `having` | Dot-path shorthand for object field assertions |
 | `json` | Parse JSON string (or pass through pre-parsed values) |
 | `and`, `or`, `not` | Logical combinators |
 

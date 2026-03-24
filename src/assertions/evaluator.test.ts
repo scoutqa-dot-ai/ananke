@@ -28,10 +28,10 @@ describe("evaluate", () => {
       expect(failures("hello", { contains: "world" })).toHaveLength(1);
     });
 
-    it("contains type mismatch on non-string", () => {
+    it("contains type mismatch on non-string non-array", () => {
       const result = failures(42, { contains: "4" });
       expect(result).toHaveLength(1);
-      expect(result[0].assertion).toContain("expects string");
+      expect(result[0].assertion).toContain("expects string or array");
     });
 
     it("starts_with passes", () => {
@@ -50,36 +50,61 @@ describe("evaluate", () => {
       expect(failures("hello world", { ends_with: "hello" })).toHaveLength(1);
     });
 
-    it("must_match single pattern passes", () => {
-      expect(failures("abc123", { must_match: "\\d+" })).toHaveLength(0);
+    it("matches single pattern passes", () => {
+      expect(failures("abc123", { matches: "\\d+" })).toHaveLength(0);
     });
 
-    it("must_match single pattern fails", () => {
-      expect(failures("abc", { must_match: "\\d+" })).toHaveLength(1);
+    it("matches single pattern fails", () => {
+      expect(failures("abc", { matches: "\\d+" })).toHaveLength(1);
     });
 
-    it("must_match array all pass", () => {
+    it("matches array all pass", () => {
       expect(
-        failures("hello world 42", { must_match: ["hello", "\\d+"] })
+        failures("hello world 42", { matches: ["hello", "\\d+"] })
       ).toHaveLength(0);
     });
 
-    it("must_match array partial fail", () => {
+    it("matches array partial fail", () => {
       expect(
-        failures("hello world", { must_match: ["hello", "\\d+"] })
+        failures("hello world", { matches: ["hello", "\\d+"] })
       ).toHaveLength(1);
     });
 
-    it("must_not_match passes when no match", () => {
-      expect(failures("hello", { must_not_match: "\\d+" })).toHaveLength(0);
+    it("matches supports /pattern/flags syntax", () => {
+      expect(failures("Hello", { matches: "/hello/i" })).toHaveLength(0);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Array contains
+  // -----------------------------------------------------------------------
+  describe("array contains", () => {
+    it("contains passes when string element exists", () => {
+      expect(failures(["a", "b", "c"], { contains: "b" })).toHaveLength(0);
     });
 
-    it("must_not_match fails when matches", () => {
-      expect(failures("hello42", { must_not_match: "\\d+" })).toHaveLength(1);
+    it("contains fails when string element missing", () => {
+      expect(failures(["a", "b", "c"], { contains: "z" })).toHaveLength(1);
     });
 
-    it("must_match supports /pattern/flags syntax", () => {
-      expect(failures("Hello", { must_match: "/hello/i" })).toHaveLength(0);
+    it("contains passes when number element exists", () => {
+      expect(failures([42, 43], { contains: 42 })).toHaveLength(0);
+    });
+
+    it("contains fails when number element missing", () => {
+      expect(failures([42, 43], { contains: 99 })).toHaveLength(1);
+    });
+
+    it("contains passes when boolean element exists", () => {
+      expect(failures([true, false], { contains: true })).toHaveLength(0);
+    });
+
+    it("contains fails on empty array", () => {
+      expect(failures([], { contains: "a" })).toHaveLength(1);
+    });
+
+    it("contains uses strict equality (no type coercion)", () => {
+      expect(failures(["42"], { contains: 42 })).toHaveLength(1);
     });
   });
 
@@ -87,12 +112,12 @@ describe("evaluate", () => {
   // Number assertions
   // -----------------------------------------------------------------------
   describe("number assertions", () => {
-    it("exact passes", () => {
-      expect(failures(42, { exact: 42 })).toHaveLength(0);
+    it("equals passes for number", () => {
+      expect(failures(42, { equals: 42 })).toHaveLength(0);
     });
 
-    it("exact fails", () => {
-      expect(failures(42, { exact: 43 })).toHaveLength(1);
+    it("equals fails for number", () => {
+      expect(failures(42, { equals: 43 })).toHaveLength(1);
     });
 
     it("min passes", () => {
@@ -136,12 +161,12 @@ describe("evaluate", () => {
   // Array assertions
   // -----------------------------------------------------------------------
   describe("array assertions", () => {
-    it("count exact passes", () => {
-      expect(failures([1, 2, 3], { count: { exact: 3 } })).toHaveLength(0);
+    it("count equals passes", () => {
+      expect(failures([1, 2, 3], { count: { equals: 3 } })).toHaveLength(0);
     });
 
-    it("count exact fails", () => {
-      expect(failures([1, 2], { count: { exact: 3 } })).toHaveLength(1);
+    it("count equals fails", () => {
+      expect(failures([1, 2], { count: { equals: 3 } })).toHaveLength(1);
     });
 
     it("count min/max", () => {
@@ -152,13 +177,13 @@ describe("evaluate", () => {
 
     it("every passes when all match", () => {
       expect(
-        failures(["a", "b", "c"], { every: { must_match: "^[a-c]$" } })
+        failures(["a", "b", "c"], { every: { matches: "^[a-c]$" } })
       ).toHaveLength(0);
     });
 
     it("every fails when one doesn't match", () => {
       const result = failures(["a", "b", "z"], {
-        every: { must_match: "^[a-c]$" },
+        every: { matches: "^[a-c]$" },
       });
       expect(result.length).toBeGreaterThan(0);
     });
@@ -227,8 +252,8 @@ describe("evaluate", () => {
       ];
       expect(
         failures(tools, {
-          filter: { match: { name: { equals: "search" } } },
-          count: { exact: 2 },
+          filter: { having: { name: { equals: "search" } } },
+          count: { equals: 2 },
         })
       ).toHaveLength(0);
     });
@@ -241,14 +266,14 @@ describe("evaluate", () => {
       ];
       expect(
         failures(items, {
-          filter: { match: { type: { equals: "a" } } },
-          every: { match: { value: { min: 1 } } },
+          filter: { having: { type: { equals: "a" } } },
+          every: { having: { value: { min: 1 } } },
         })
       ).toHaveLength(0);
     });
 
     it("type mismatch for array ops on non-array", () => {
-      expect(failures("hello", { count: { exact: 5 } })).toHaveLength(1);
+      expect(failures("hello", { count: { equals: 5 } })).toHaveLength(1);
       expect(failures("hello", { every: { equals: "h" } })).toHaveLength(1);
     });
   });
@@ -265,48 +290,23 @@ describe("evaluate", () => {
       expect(failures({ name: "John" }, { has_key: "age" })).toHaveLength(1);
     });
 
-    it("not_has_key passes", () => {
-      expect(failures({ name: "John" }, { not_has_key: "age" })).toHaveLength(
-        0
-      );
-    });
-
-    it("not_has_key fails", () => {
+    it("not: has_key passes (replaces not_has_key)", () => {
       expect(
-        failures({ name: "John" }, { not_has_key: "name" })
-      ).toHaveLength(1);
-    });
-
-    it("at extracts and asserts", () => {
-      const obj = { user: { name: "John" } };
-      expect(
-        failures(obj, { at: { path: "user.name", assert: { equals: "John" } } })
+        failures({ name: "John" }, { not: { has_key: "age" } })
       ).toHaveLength(0);
     });
 
-    it("at fails when path not found", () => {
+    it("not: has_key fails", () => {
       expect(
-        failures(
-          { user: {} },
-          { at: { path: "user.name", assert: { equals: "John" } } }
-        )
+        failures({ name: "John" }, { not: { has_key: "name" } })
       ).toHaveLength(1);
     });
 
-    it("at supports array indexing", () => {
-      const obj = { items: ["first", "second"] };
-      expect(
-        failures(obj, {
-          at: { path: "items[0]", assert: { equals: "first" } },
-        })
-      ).toHaveLength(0);
-    });
-
-    it("match asserts on multiple fields", () => {
+    it("having asserts on multiple fields", () => {
       const obj = { name: "search", args: { query: "weather" } };
       expect(
         failures(obj, {
-          match: {
+          having: {
             name: { equals: "search" },
             "args.query": { contains: "weather" },
           },
@@ -314,13 +314,29 @@ describe("evaluate", () => {
       ).toHaveLength(0);
     });
 
-    it("match fails when field not found", () => {
+    it("having fails when field not found", () => {
       const obj = { name: "search" };
       expect(
         failures(obj, {
-          match: { "args.query": { equals: "weather" } },
+          having: { "args.query": { equals: "weather" } },
         })
       ).toHaveLength(1);
+    });
+
+    it("having replaces at for single field extraction", () => {
+      const obj = { user: { name: "John" } };
+      expect(
+        failures(obj, { having: { "user.name": { equals: "John" } } })
+      ).toHaveLength(0);
+    });
+
+    it("having supports array indexing via dot-path", () => {
+      const obj = { items: ["first", "second"] };
+      expect(
+        failures(obj, {
+          having: { "items[0]": { equals: "first" } },
+        })
+      ).toHaveLength(0);
     });
   });
 
@@ -331,20 +347,20 @@ describe("evaluate", () => {
     it("parses JSON and asserts on result", () => {
       expect(
         failures('{"status":"ok"}', {
-          json: { match: { status: { equals: "ok" } } },
+          json: { having: { status: { equals: "ok" } } },
         })
       ).toHaveLength(0);
     });
 
     it("fails on invalid JSON", () => {
       expect(
-        failures("not json", { json: { match: { status: { equals: "ok" } } } })
+        failures("not json", { json: { having: { status: { equals: "ok" } } } })
       ).toHaveLength(1);
     });
 
     it("parses JSON array", () => {
       expect(
-        failures("[1,2,3]", { json: { count: { exact: 3 } } })
+        failures("[1,2,3]", { json: { count: { equals: 3 } } })
       ).toHaveLength(0);
     });
 
@@ -356,14 +372,14 @@ describe("evaluate", () => {
       const parsed = { status: "ok", count: 3 };
       expect(
         failures(parsed, {
-          json: { match: { status: { equals: "ok" }, count: { exact: 3 } } },
+          json: { having: { status: { equals: "ok" }, count: { equals: 3 } } },
         })
       ).toHaveLength(0);
     });
 
     it("passes through already-parsed arrays", () => {
       expect(
-        failures([1, 2, 3], { json: { count: { exact: 3 } } })
+        failures([1, 2, 3], { json: { count: { equals: 3 } } })
       ).toHaveLength(0);
     });
 
@@ -448,14 +464,14 @@ describe("evaluate", () => {
   describe("implicit AND", () => {
     it("multiple keys at same level are ANDed", () => {
       expect(
-        failures("hello world", { contains: "hello", must_match: "world" })
+        failures("hello world", { contains: "hello", matches: "world" })
       ).toHaveLength(0);
     });
 
     it("reports all sibling key failures", () => {
       const result = failures("abc", {
         contains: "xyz",
-        must_match: "\\d+",
+        matches: "\\d+",
       });
       expect(result).toHaveLength(2);
     });
@@ -471,11 +487,11 @@ describe("evaluate", () => {
       const tools: unknown[] = [];
 
       const textFailures = failures(text, {
-        must_match: ["Kai", "TestOps|TrueTest"],
+        matches: ["Kai", "TestOps|TrueTest"],
       });
       expect(textFailures).toHaveLength(0);
 
-      const toolFailures = failures(tools, { count: { exact: 0 } });
+      const toolFailures = failures(tools, { count: { equals: 0 } });
       expect(toolFailures).toHaveLength(0);
     });
 
@@ -483,6 +499,13 @@ describe("evaluate", () => {
       const names = ["intent_agent", "get_project_status"];
       expect(
         failures(names, { some: { equals: "get_project_status" } })
+      ).toHaveLength(0);
+    });
+
+    it("tool_names contains", () => {
+      const names = ["intent_agent", "get_project_status"];
+      expect(
+        failures(names, { contains: "get_project_status" })
       ).toHaveLength(0);
     });
 
@@ -499,10 +522,10 @@ describe("evaluate", () => {
       ).toHaveLength(0);
     });
 
-    it("tool_names none with must_match", () => {
+    it("tool_names none with matches", () => {
       const names = ["intent_agent", "find_iterations"];
       expect(
-        failures(names, { none: { must_match: "stability_.*" } })
+        failures(names, { none: { matches: "stability_.*" } })
       ).toHaveLength(0);
     });
 
@@ -515,24 +538,24 @@ describe("evaluate", () => {
       expect(
         failures(tools, {
           filter: {
-            match: {
+            having: {
               name: { equals: "search" },
-              "args.query": { must_match: "weather" },
+              "args.query": { matches: "weather" },
             },
           },
-          count: { exact: 2 },
+          count: { equals: 2 },
         })
       ).toHaveLength(0);
     });
 
-    it("none with match for forbid pattern", () => {
+    it("none with having for forbid pattern", () => {
       const tools = [
         { name: "safe_query", args: { table: "products" }, result: '{"data":"ok"}' },
       ];
       expect(
         failures(tools, {
           none: {
-            match: {
+            having: {
               name: { equals: "database_query" },
               "args.table": { equals: "users" },
             },
@@ -541,7 +564,7 @@ describe("evaluate", () => {
       ).toHaveLength(0);
     });
 
-    it("some with match + json on result", () => {
+    it("some with having + json on result", () => {
       const tools = [
         {
           name: "get_report",
@@ -552,11 +575,11 @@ describe("evaluate", () => {
       expect(
         failures(tools, {
           some: {
-            match: {
+            having: {
               name: { equals: "get_report" },
               result: {
                 json: {
-                  match: {
+                  having: {
                     status: { equals: "ok" },
                     items: { count: { min: 1 } },
                     score: { min: 80, max: 100 },

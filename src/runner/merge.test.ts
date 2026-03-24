@@ -15,10 +15,10 @@ describe("mergeAssertBlocks", () => {
     it("uses test selector when no target", () => {
       const result = mergeAssertBlocks(
         undefined,
-        { text: { must_match: "hello" } },
+        { text: { matches: "hello" } },
         undefined
       );
-      expect(result.text).toEqual({ must_match: "hello" });
+      expect(result.text).toEqual({ matches: "hello" });
     });
 
     it("wraps multiple levels in implicit AND for same selector", () => {
@@ -34,15 +34,15 @@ describe("mergeAssertBlocks", () => {
 
     it("merges text from all three levels", () => {
       const result = mergeAssertBlocks(
-        { text: { must_match: "target" } },
-        { text: { must_match: "test" } },
-        { text: { must_match: "turn" } }
+        { text: { matches: "target" } },
+        { text: { matches: "test" } },
+        { text: { matches: "turn" } }
       );
       expect(result.text).toEqual({
         and: [
-          { must_match: "target" },
-          { must_match: "test" },
-          { must_match: "turn" },
+          { matches: "target" },
+          { matches: "test" },
+          { matches: "turn" },
         ],
       });
     });
@@ -51,9 +51,9 @@ describe("mergeAssertBlocks", () => {
       const result = mergeAssertBlocks(
         undefined,
         undefined,
-        { tools: { count: { exact: 0 } } }
+        { tools: { count: { equals: 0 } } }
       );
-      expect(result.tools).toEqual({ count: { exact: 0 } });
+      expect(result.tools).toEqual({ count: { equals: 0 } });
     });
   });
 
@@ -61,11 +61,11 @@ describe("mergeAssertBlocks", () => {
     it("merges different selectors from different levels", () => {
       const result = mergeAssertBlocks(
         { duration_ms: { max: 30000 } },
-        { text: { must_match: "hello" } },
+        { text: { matches: "hello" } },
         { tools: { count: { min: 1 } } }
       );
       expect(result.duration_ms).toEqual({ max: 30000 });
-      expect(result.text).toEqual({ must_match: "hello" });
+      expect(result.text).toEqual({ matches: "hello" });
       expect(result.tools).toEqual({ count: { min: 1 } });
     });
   });
@@ -75,13 +75,13 @@ describe("mergeAssertBlocks", () => {
       const result = mergeAssertBlocks(
         {
           or: [
-            { text: { must_match: "a" } },
-            { text: { must_match: "b" } },
+            { text: { matches: "a" } },
+            { text: { matches: "b" } },
           ],
         },
         {
           or: [
-            { tools: { count: { exact: 0 } } },
+            { tools: { count: { equals: 0 } } },
             { tools: { count: { min: 1 } } },
           ],
         },

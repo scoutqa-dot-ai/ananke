@@ -33,7 +33,7 @@ describe("evaluateTurnAssertions", () => {
   it("evaluates text selector", () => {
     const turnData = makeTurnData({ assistantText: "Hello Kai from TestOps" });
     const result = evaluateTurnAssertions(turnData, {
-      text: { must_match: ["Kai", "TestOps"] },
+      text: { matches: ["Kai", "TestOps"] },
     });
     expect(result.passed).toBe(true);
   });
@@ -56,7 +56,7 @@ describe("evaluateTurnAssertions", () => {
       toolCalls: [makeToolCall("tool1"), makeToolCall("tool2")],
     });
     const result = evaluateTurnAssertions(turnData, {
-      tools: { count: { exact: 2 } },
+      tools: { count: { equals: 2 } },
     });
     expect(result.passed).toBe(true);
   });
@@ -111,7 +111,7 @@ describe("evaluateTurnAssertions", () => {
       endTs: 3000,
     });
     const result = evaluateTurnAssertions(turnData, {
-      text: { must_match: "status" },
+      text: { matches: "status" },
       tool_names: { some: { equals: "get_status" } },
       duration_ms: { max: 5000 },
     });
@@ -126,12 +126,12 @@ describe("evaluateTurnAssertions", () => {
     const result = evaluateTurnAssertions(turnData, {
       or: [
         {
-          text: { must_match: "draft|report" },
-          tool_names: { some: { must_match: "generate_urls" } },
+          text: { matches: "draft|report" },
+          tool_names: { some: { matches: "generate_urls" } },
         },
         {
-          text: { must_match: "clarif|which|specify" },
-          tools: { count: { exact: 0 } },
+          text: { matches: "clarif|which|specify" },
+          tools: { count: { equals: 0 } },
         },
       ],
     });
@@ -145,8 +145,8 @@ describe("evaluateTurnAssertions", () => {
     });
     const result = evaluateTurnAssertions(turnData, {
       or: [
-        { text: { must_match: "draft" } },
-        { text: { must_match: "clarify" } },
+        { text: { matches: "draft" } },
+        { text: { matches: "clarify" } },
       ],
     });
     expect(result.passed).toBe(false);
@@ -175,8 +175,8 @@ describe("evaluateTestAssertions", () => {
     };
 
     const result = evaluateTestAssertions(testData, {
-      text: { must_match: "Hello" },
-      tool_names: { count: { exact: 2 } },
+      text: { matches: "Hello" },
+      tool_names: { count: { equals: 2 } },
     });
     expect(result.passed).toBe(true);
   });
@@ -191,7 +191,7 @@ describe("evaluateTestAssertions", () => {
     };
 
     const result = evaluateTestAssertions(testData, {
-      text: { must_match: "Hello\\nWorld" },
+      text: { matches: "Hello\\nWorld" },
     });
     expect(result.passed).toBe(true);
   });

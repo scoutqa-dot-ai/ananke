@@ -5,22 +5,19 @@ import { z } from "zod";
 // ---------------------------------------------------------------------------
 
 const NumberAssertionSchema = z.object({
-  exact: z.number().optional(),
   min: z.number().optional(),
   max: z.number().optional(),
 }).strict();
 
 // Forward-declare for recursive references (exported for DTS generation)
 export type AssertionNodeInput = {
-  // String
+  // String / Array
   equals?: string | number | boolean | null;
-  contains?: string;
+  contains?: string | number | boolean;
   starts_with?: string;
   ends_with?: string;
-  must_match?: string | string[];
-  must_not_match?: string | string[];
+  matches?: string | string[];
   // Number
-  exact?: number;
   min?: number;
   max?: number;
   // Array
@@ -32,9 +29,7 @@ export type AssertionNodeInput = {
   filter?: AssertionNodeInput;
   // Object
   has_key?: string;
-  not_has_key?: string;
-  at?: { path: string; assert: AssertionNodeInput };
-  match?: Record<string, AssertionNodeInput>;
+  having?: Record<string, AssertionNodeInput>;
   // Transform
   json?: AssertionNodeInput;
   // Meta
@@ -45,15 +40,13 @@ export type AssertionNodeInput = {
 
 const AssertionNodeSchema: z.ZodType<AssertionNodeInput> = z.lazy(() =>
   z.object({
-    // String assertions
+    // String / Array assertions
     equals: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
-    contains: z.string().optional(),
+    contains: z.union([z.string(), z.number(), z.boolean()]).optional(),
     starts_with: z.string().optional(),
     ends_with: z.string().optional(),
-    must_match: z.union([z.string(), z.array(z.string())]).optional(),
-    must_not_match: z.union([z.string(), z.array(z.string())]).optional(),
+    matches: z.union([z.string(), z.array(z.string())]).optional(),
     // Number assertions
-    exact: z.number().optional(),
     min: z.number().optional(),
     max: z.number().optional(),
     // Array assertions
@@ -65,12 +58,7 @@ const AssertionNodeSchema: z.ZodType<AssertionNodeInput> = z.lazy(() =>
     filter: AssertionNodeSchema.optional(),
     // Object assertions
     has_key: z.string().optional(),
-    not_has_key: z.string().optional(),
-    at: z.object({
-      path: z.string(),
-      assert: AssertionNodeSchema,
-    }).strict().optional(),
-    match: z.record(AssertionNodeSchema).optional(),
+    having: z.record(AssertionNodeSchema).optional(),
     // Transform
     json: AssertionNodeSchema.optional(),
     // Meta
