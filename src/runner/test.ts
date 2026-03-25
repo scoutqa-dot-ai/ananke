@@ -128,8 +128,10 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
     }
   }
 
-  // Interpolate config with variables
-  const interpolatedConfig = interpolateObject(config, variables) as ProjectConfig;
+  // Interpolate config with variables (exclude assertions — they contain
+  // ${param} templates resolved later by the assertion resolver, not here)
+  const { assertions: _skipAssertions, ...configWithoutAssertions } = config as Record<string, unknown>;
+  const interpolatedConfig = interpolateObject(configWithoutAssertions, variables) as ProjectConfig;
 
   // Create client (only needed for non-replay mode)
   const client: ProtocolClient | undefined = testReplayDir
