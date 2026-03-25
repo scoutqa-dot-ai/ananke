@@ -61,23 +61,23 @@ describe("evaluateTurnAssertions", () => {
     expect(result.passed).toBe(true);
   });
 
-  it("evaluates duration_ms selector", () => {
+  it("evaluates response selector with durationMs", () => {
     const turnData = makeTurnData({ startTs: 1000, endTs: 6000 });
     const result = evaluateTurnAssertions(turnData, {
-      duration_ms: { max: 10000 },
+      response: { having: { durationMs: { max: 10000 } } },
     });
     expect(result.passed).toBe(true);
   });
 
-  it("fails duration_ms when exceeded", () => {
+  it("fails response durationMs when exceeded", () => {
     const turnData = makeTurnData({ startTs: 1000, endTs: 20000 });
     const result = evaluateTurnAssertions(turnData, {
-      duration_ms: { max: 10000 },
+      response: { having: { durationMs: { max: 10000 } } },
     });
     expect(result.passed).toBe(false);
   });
 
-  it("evaluates idle_ms selector", () => {
+  it("evaluates response selector with idleMs", () => {
     const turnData = makeTurnData({
       startTs: 1000,
       endTs: 5000,
@@ -85,12 +85,12 @@ describe("evaluateTurnAssertions", () => {
     });
     // max idle gap: max(2000-1000, 5000-2000) = 3000
     const result = evaluateTurnAssertions(turnData, {
-      idle_ms: { max: 5000 },
+      response: { having: { idleMs: { max: 5000 } } },
     });
     expect(result.passed).toBe(true);
   });
 
-  it("fails idle_ms when exceeded", () => {
+  it("fails response idleMs when exceeded", () => {
     const turnData = makeTurnData({
       startTs: 1000,
       endTs: 20000,
@@ -98,9 +98,25 @@ describe("evaluateTurnAssertions", () => {
     });
     // No tools → idle = 19000
     const result = evaluateTurnAssertions(turnData, {
-      idle_ms: { max: 10000 },
+      response: { having: { idleMs: { max: 10000 } } },
     });
     expect(result.passed).toBe(false);
+  });
+
+  it("evaluates response selector with raw fields via having", () => {
+    const turnData = makeTurnData({
+      assistantText: "Hello world",
+      toolCalls: [makeToolCall("t1"), makeToolCall("t2")],
+    });
+    const result = evaluateTurnAssertions(turnData, {
+      response: {
+        having: {
+          toolCalls: { count: { equals: 2 } },
+          assistantText: { contains: "Hello" },
+        },
+      },
+    });
+    expect(result.passed).toBe(true);
   });
 
   it("evaluates multiple selectors (implicit AND)", () => {
@@ -113,7 +129,7 @@ describe("evaluateTurnAssertions", () => {
     const result = evaluateTurnAssertions(turnData, {
       text: { matches: "status" },
       tool_names: { some: { equals: "get_status" } },
-      duration_ms: { max: 5000 },
+      response: { having: { durationMs: { max: 5000 } } },
     });
     expect(result.passed).toBe(true);
   });

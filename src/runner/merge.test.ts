@@ -5,11 +5,11 @@ describe("mergeAssertBlocks", () => {
   describe("selector inheritance", () => {
     it("uses target selector when no overrides", () => {
       const result = mergeAssertBlocks(
-        { duration_ms: { max: 5000 } },
+        { response: { having: { durationMs: { max: 5000 } } } },
         undefined,
         undefined
       );
-      expect(result.duration_ms).toEqual({ max: 5000 });
+      expect(result.response).toEqual({ having: { durationMs: { max: 5000 } } });
     });
 
     it("uses test selector when no target", () => {
@@ -23,12 +23,15 @@ describe("mergeAssertBlocks", () => {
 
     it("wraps multiple levels in implicit AND for same selector", () => {
       const result = mergeAssertBlocks(
-        { duration_ms: { max: 30000 } },
-        { duration_ms: { max: 15000 } },
+        { response: { having: { durationMs: { max: 30000 } } } },
+        { response: { having: { durationMs: { max: 15000 } } } },
         undefined
       );
-      expect(result.duration_ms).toEqual({
-        and: [{ max: 30000 }, { max: 15000 }],
+      expect(result.response).toEqual({
+        and: [
+          { having: { durationMs: { max: 30000 } } },
+          { having: { durationMs: { max: 15000 } } },
+        ],
       });
     });
 
@@ -60,11 +63,11 @@ describe("mergeAssertBlocks", () => {
   describe("different selectors from different levels", () => {
     it("merges different selectors from different levels", () => {
       const result = mergeAssertBlocks(
-        { duration_ms: { max: 30000 } },
+        { response: { having: { durationMs: { max: 30000 } } } },
         { text: { matches: "hello" } },
         { tools: { count: { min: 1 } } }
       );
-      expect(result.duration_ms).toEqual({ max: 30000 });
+      expect(result.response).toEqual({ having: { durationMs: { max: 30000 } } });
       expect(result.text).toEqual({ matches: "hello" });
       expect(result.tools).toEqual({ count: { min: 1 } });
     });

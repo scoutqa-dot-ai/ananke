@@ -91,8 +91,7 @@ export type AssertBlockInput = {
   text?: AssertionNodeInput;
   tool_names?: AssertionNodeInput;
   tools?: AssertionNodeInput;
-  duration_ms?: AssertionNodeInput;
-  idle_ms?: AssertionNodeInput;
+  response?: AssertionNodeInput;
   or?: AssertBlockInput[];
   and?: AssertBlockInput[];
   not?: AssertBlockInput;
@@ -107,8 +106,7 @@ const AssertBlockSchema: z.ZodType<AssertBlockInput> = z.lazy(() =>
     text: AssertionNodeSchema.optional(),
     tool_names: AssertionNodeSchema.optional(),
     tools: AssertionNodeSchema.optional(),
-    duration_ms: AssertionNodeSchema.optional(),
-    idle_ms: AssertionNodeSchema.optional(),
+    response: AssertionNodeSchema.optional(),
     or: z.array(AssertBlockSchema).optional(),
     and: z.array(AssertBlockSchema).optional(),
     not: AssertBlockSchema.optional(),

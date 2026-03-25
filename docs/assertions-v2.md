@@ -62,8 +62,27 @@ Selectors are the top-level keys in an `assert` block. Each extracts a typed val
 | `text` | string | `assistantText` (turn) or `allAssistantTexts.join("\n")` (test) |
 | `tool_names` | array\<string\> | `toolCalls.map(c => c.name)` |
 | `tools` | array\<object\> | `toolCalls` (full ToolCall objects) |
-| `duration_ms` | number | `endTs - startTs` |
-| `idle_ms` | number | max gap among: start-to-first-tool, between consecutive tools, last-tool-to-end. If zero tool calls, `idle_ms` = `endTs - startTs`. |
+| `response` | object | Flat object with computed response metrics (see below) |
+
+#### `response` Object Fields
+
+The `response` selector returns the full response data as a flat camelCase object. Use `having` to assert on its fields. Raw fields come directly from the response data; computed fields are derived from them.
+
+**Raw fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `assistantText` | string | Full response text (same as `text` selector) |
+| `toolCalls` | array\<object\> | Full tool call objects (same as `tools` selector) |
+| `startTs` | number | Epoch ms when first event arrived |
+| `endTs` | number | Epoch ms when last event arrived |
+
+**Computed fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `durationMs` | number | `endTs - startTs` |
+| `idleMs` | number | Max gap among: start-to-first-tool, between consecutive tools, last-tool-to-end. If zero tool calls, `idleMs` = `endTs - startTs`. |
 
 ### Transforms
 
@@ -343,7 +362,7 @@ Operators are type-specific. If an operator receives a value of the wrong type, 
 For selectors, the type is always known:
 - `text` always produces a string
 - `tools` always produces an array
-- `duration_ms` always produces a number
+- `response` always produces an object
 
 For transforms, the output type depends on the data at runtime:
 - `json` parses a string into any type (object, array, number, string, boolean)
@@ -493,8 +512,9 @@ turns:
         some: { equals: "get_project_status" }
       text:
         matches: "status"
-      duration_ms:
-        max: 15000
+      response:
+        having:
+          durationMs: { max: 15000 }
 ```
 
 ### S3: Multi-tool with ordering
@@ -508,8 +528,9 @@ turns:
           - equals: "intent_agent"
           - equals: "find_iterations"
         count: { min: 2 }
-      idle_ms:
-        max: 10000
+      response:
+        having:
+          idleMs: { max: 10000 }
 ```
 
 ### S4: Multiple insight tools
@@ -524,8 +545,9 @@ turns:
         count: { min: 3 }
       text:
         matches: "report|analysis|insight"
-      duration_ms:
-        max: 60000
+      response:
+        having:
+          durationMs: { max: 60000 }
 ```
 
 ### S5: URL generation
@@ -582,8 +604,9 @@ turns:
         none: { matches: "stability_.*" }
       text:
         matches: "http"
-      duration_ms:
-        max: 30000
+      response:
+        having:
+          durationMs: { max: 30000 }
 ```
 
 ### Array contains — quick element check

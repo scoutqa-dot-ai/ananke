@@ -13,8 +13,9 @@ turns:
         ordered:
           - equals: "validate_cart"
           - equals: "get_shipping_options"
-      duration_ms:
-        max: 30000
+      response:
+        having:
+          durationMs: { max: 30000 }
 
   - user: "Use the first shipping option"
     assert:
@@ -34,7 +35,7 @@ turns:
 assert:
   tool_names:
     none: { equals: "delete_order" }
-  duration_ms:
-    max: 120000
-  idle_ms:
-    max: 60000
+  response:
+    having:
+      durationMs: { max: 120000 }
+      idleMs: { max: 60000 }

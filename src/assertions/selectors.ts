@@ -21,13 +21,22 @@ export function extractSelector(
       return data.toolCalls.map((c) => c.name);
     case "tools":
       return data.toolCalls;
-    case "duration_ms":
-      return data.endTs - data.startTs;
-    case "idle_ms":
-      return computeMaxIdleGap(data);
+    case "response":
+      return buildResponseData(data);
     default:
       throw new Error(`Unknown selector: ${name}`);
   }
+}
+
+/**
+ * Build the flat response data object exposed by the `response` selector.
+ */
+function buildResponseData(data: SelectorData) {
+  return {
+    ...data,
+    durationMs: data.endTs - data.startTs,
+    idleMs: computeMaxIdleGap(data),
+  };
 }
 
 /**
@@ -36,7 +45,7 @@ export function extractSelector(
  * - between consecutive tool calls
  * - last tool call to end
  *
- * If zero tool calls, idle_ms = endTs - startTs.
+ * If zero tool calls, idleMs = endTs - startTs.
  */
 function computeMaxIdleGap(data: SelectorData): number {
   const { toolCalls, startTs, endTs } = data;
@@ -65,6 +74,5 @@ export const SELECTOR_KEYS = [
   "text",
   "tool_names",
   "tools",
-  "duration_ms",
-  "idle_ms",
+  "response",
 ] as const;

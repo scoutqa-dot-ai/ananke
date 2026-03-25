@@ -99,8 +99,9 @@ target:
     X-Custom-Header: "value"
   # Optional: default assertions for all tests
   assert:
-    duration_ms:
-      max: 60000
+    response:
+      having:
+        durationMs: { max: 60000 }
     text:
       not:
         matches: ["exception", "fatal"]
@@ -132,8 +133,9 @@ turns:
           having:
             name: { equals: "tool_name" }
             args.arg_name: { matches: "regex" }
-      duration_ms:
-        max: 30000
+      response:
+        having:
+          durationMs: { max: 30000 }
       text:
         matches: "regex"
         not:
@@ -142,10 +144,10 @@ turns:
 assert:  # Test-level assertions (inherits from target)
   tool_names:
     none: { equals: "dangerous_tool" }
-  duration_ms:
-    max: 120000
-  idle_ms:
-    max: 60000
+  response:
+    having:
+      durationMs: { max: 120000 }
+      idleMs: { max: 60000 }
 ```
 
 ## Assertions
@@ -159,8 +161,7 @@ See [docs/assertions-v2.md](docs/assertions-v2.md) for the full assertion refere
 | `text` | string | Assistant response text |
 | `tool_names` | array | Tool call names |
 | `tools` | array | Full tool call objects |
-| `duration_ms` | number | Total duration |
-| `idle_ms` | number | Max idle gap |
+| `response` | object | Response metrics (use `having` to assert on fields) |
 
 ### Common Operators
 
