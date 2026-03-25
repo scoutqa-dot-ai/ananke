@@ -116,7 +116,7 @@ target:
 Variables:
 
 - `${ENV.NAME}` - Environment variable
-- `${VAR}` - Variable from hooks
+- `${VAR.NAME}` - Variable from hooks or script turns
 
 ## Test File Format
 
@@ -188,14 +188,41 @@ See [docs/assertions-v2.md](docs/assertions-v2.md) for the full assertion refere
 
 ## Hooks
 
-Hooks run before test execution. They must output JSON to stdout:
+Hooks run before test execution. They must output JSON to stdout with a `variables` key:
 
 ```bash
 #!/bin/bash
-echo '{"THREAD_ID": "th_123", "USER_ID": "user_456"}'
+echo '{"variables": {"THREAD_ID": "th_123", "USER_ID": "user_456"}}'
 ```
 
-Variables from hooks are available as `${VAR}` in the test.
+Variables from hooks are available as `${VAR.NAME}` in turns and config:
+
+```yaml
+turns:
+  - user: "Check thread ${VAR.THREAD_ID}"
+```
+
+## Script Turns
+
+Script turns dynamically generate user messages based on previous turn data:
+
+```yaml
+turns:
+  - user: "Show shipping options"
+    assert:
+      tool_names:
+        some: { equals: "get_shipping_options" }
+
+  - type: script
+    script: "scripts/pick-cheapest.sh"
+    assert:
+      tool_names:
+        some: { equals: "calculate_total" }
+```
+
+Scripts receive an `ANANKE` env var (and stdin) with JSON containing `value`, `turns`, `variables`, and `turnIndex`. They output JSON with `message` (required), `variables` (optional), and `action` (optional).
+
+See [docs/unified-script-contract.md](docs/unified-script-contract.md) for the full script contract.
 
 ## CI Integration
 

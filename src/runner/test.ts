@@ -13,8 +13,13 @@ import type {
   TestData,
   TurnData,
 } from "../types/index.js";
-import { isUserTurn, isConnectTurn } from "../types/test.js";
+import { isUserTurn, isConnectTurn, isScriptTurn } from "../types/test.js";
 import { executeTurn, executeConnectTurn, collectTurnData } from "./turn.js";
+import {
+  executeScript,
+  normalizeScriptConfig,
+  buildAnankeInput,
+} from "./script.js";
 import { mergeAssertBlocks } from "./merge.js";
 import { formatDuration } from "./format.js";
 import {
@@ -29,8 +34,10 @@ import {
   getTestRecordingDir,
   createRecordingGenerator,
   recordHookOutput,
+  recordScriptTurnOutput,
   replayEvents,
   loadHookOutput,
+  loadScriptTurnOutput,
 } from "../recording/index.js";
 import type { Logger } from "../logger.js";
 
@@ -46,6 +53,7 @@ export interface TestRunnerOptions {
 export interface TestResult {
   testName: string;
   passed: boolean;
+  skipped?: boolean;
   testData: TestData;
   error?: string;
   failures: string[];
@@ -67,10 +75,8 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
     validateNamedAssertions(namedAssertions);
   }
 
-  const evalOptions: EvaluationOptions = {
-    namedAssertions,
-    logger,
-  };
+  // Mutable variable map — accumulated throughout test execution
+  const variables: Variables = {};
 
   // Get recording directory for this test (use relative path)
   const relativeTestPath = relative(process.cwd(), testFilePath);
@@ -84,7 +90,6 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
   }
 
   // Execute hooks and collect variables
-  let variables: Variables = {};
   if (test.hooks && test.hooks.length > 0) {
     if (replayDir) {
       // Replay mode: load hook outputs from files
@@ -105,6 +110,24 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
       try {
         for (let i = 0; i < test.hooks.length; i++) {
           const result = await executeHook(test.hooks[i], { currentVars: variables, logger });
+
+          // Handle skip actions
+          if (result.action === 'skip_test') {
+            logger.debug('  Hook requested skip_test');
+            return {
+              testName: test.name,
+              passed: true,
+              skipped: true,
+              testData: buildTestData(turns, startTs),
+              failures: [],
+            };
+          }
+
+          if (result.action === 'skip_hook') {
+            logger.debug(`  Hook ${i + 1} skipped`);
+            continue;
+          }
+
           Object.assign(variables, result.variables);
 
           // Record hook output if recording
@@ -147,7 +170,27 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
 
       if (testReplayDir) {
         // Replay mode: load events from file
-        if (isConnectTurn(turn)) {
+        if (isScriptTurn(turn)) {
+          // Restore script turn output (variables, action) from recording
+          logger.debug(`  Turn ${i + 1}: [script] (replay)`);
+          const scriptOutput = await loadScriptTurnOutput(replayDir!, relativeTestPath, i);
+          if (scriptOutput) {
+            if (scriptOutput.action === "skip_test") {
+              return {
+                testName: test.name,
+                passed: true,
+                skipped: true,
+                testData: buildTestData(turns, startTs),
+                failures: [],
+              };
+            }
+            if (scriptOutput.action === "skip_turn") {
+              mergeVariables(variables, scriptOutput.variables ?? {}, "script turn (replay)", logger);
+              continue;
+            }
+            mergeVariables(variables, scriptOutput.variables ?? {}, "script turn (replay)", logger);
+          }
+        } else if (isConnectTurn(turn)) {
           logger.debug(`  Turn ${i + 1}: [connect] (replay)`);
         } else if (isUserTurn(turn)) {
           const userMessage = interpolate(turn.user, variables);
@@ -155,6 +198,82 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
         }
         const events = replayEvents(replayDir!, relativeTestPath, i);
         turnData = await collectTurnData(events, i, { logger });
+      } else if (isScriptTurn(turn)) {
+        // Script turn — execute script to get message
+        logger.debug(`  Turn ${i + 1}: [script]`);
+        const scriptConfig = normalizeScriptConfig(turn.script);
+        const ananke = buildAnankeInput({
+          turns,
+          variables,
+          turnIndex: i,
+        });
+
+        const scriptResult = await executeScript(scriptConfig, ananke, "turn", { logger });
+
+        if (scriptResult.exitCode !== 0) {
+          throw new Error(`Script turn failed: ${scriptResult.stderr}`);
+        }
+
+        const { output } = scriptResult;
+
+        // Handle skip actions
+        if (output.action === "skip_test") {
+          logger.debug("  Script turn requested skip_test");
+          if (testRecordingDir) {
+            await recordScriptTurnOutput(testRecordingDir, i, {
+              variables: output.variables,
+              action: "skip_test",
+            });
+          }
+          return {
+            testName: test.name,
+            passed: true,
+            skipped: true,
+            testData: buildTestData(turns, startTs),
+            failures: [],
+          };
+        }
+
+        if (output.action === "skip_turn") {
+          logger.debug("  Script turn skipped (skip_turn)");
+          if (testRecordingDir) {
+            await recordScriptTurnOutput(testRecordingDir, i, {
+              variables: output.variables,
+              action: "skip_turn",
+            });
+          }
+          // Merge any variables the script set before skipping
+          mergeVariables(variables, output.variables, "script turn", logger);
+          continue;
+        }
+
+        // Require message field
+        if (!output.message || !output.message.trim()) {
+          throw new Error(
+            `Script turn did not produce a "message" field`
+          );
+        }
+
+        // Merge variables before sending message
+        mergeVariables(variables, output.variables, "script turn", logger);
+
+        // Record script turn output for replay
+        if (testRecordingDir) {
+          await recordScriptTurnOutput(testRecordingDir, i, {
+            variables: output.variables,
+            message: output.message,
+          });
+        }
+
+        const userMessage = output.message;
+        logger.debug(`    Message: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
+
+        if (testRecordingDir) {
+          const events = createRecordingGenerator(client!.sendMessage({ message: userMessage }), testRecordingDir, i);
+          turnData = await collectTurnData(events, i, { logger });
+        } else {
+          turnData = await executeTurn(client!, userMessage, i, { logger });
+        }
       } else if (isConnectTurn(turn)) {
         // Connect turn - no message, just observe
         logger.debug(`  Turn ${i + 1}: [connect]`);
@@ -196,7 +315,30 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
       const hasAssertions = Object.keys(turnAssertions).length > 0;
 
       if (hasAssertions) {
-        const evalResult = evaluateTurnAssertions(turnData, turnAssertions, evalOptions);
+        const evalOptions: EvaluationOptions = {
+          namedAssertions,
+          logger,
+          variables,
+          turns,
+          turnIndex: i,
+        };
+        const evalResult = await evaluateTurnAssertions(turnData, turnAssertions, evalOptions);
+
+        // Check for skip_test action from assertion scripts
+        const skipTestResult = evalResult.results.find(
+          (r) => r.details === "skip_test"
+        );
+        if (skipTestResult) {
+          logger.debug("  Assertion script requested skip_test");
+          return {
+            testName: test.name,
+            passed: true,
+            skipped: true,
+            testData: buildTestData(turns, startTs),
+            failures: [],
+          };
+        }
+
         if (!evalResult.passed) {
           for (const failure of evalResult.failures) {
             failures.push(formatFailure(failure, i + 1));
@@ -231,7 +373,30 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
   const hasTestAssertions = Object.keys(testAssertions).length > 0;
 
   if (hasTestAssertions) {
-    const evalResult = evaluateTestAssertions(testData, testAssertions, evalOptions);
+    const evalOptions: EvaluationOptions = {
+      namedAssertions,
+      logger,
+      variables,
+      turns,
+      turnIndex: null,
+    };
+    const evalResult = await evaluateTestAssertions(testData, testAssertions, evalOptions);
+
+    // Check for skip_test from test-level assertion scripts
+    const skipTestResult = evalResult.results.find(
+      (r) => r.details === "skip_test"
+    );
+    if (skipTestResult) {
+      logger.debug("  Test-level assertion script requested skip_test");
+      return {
+        testName: test.name,
+        passed: true,
+        skipped: true,
+        testData,
+        failures: [],
+      };
+    }
+
     if (!evalResult.passed) {
       for (const failure of evalResult.failures) {
         failures.push(formatFailure(failure));
@@ -277,4 +442,22 @@ function formatFailure(failure: AssertionResult, turnIndex?: number): string {
     msg += ` - ${failure.details}`;
   }
   return msg;
+}
+
+/**
+ * Merge script output variables into the shared variable map with debug logging.
+ */
+function mergeVariables(
+  target: Variables,
+  source: Variables,
+  location: string,
+  logger: Logger
+): void {
+  for (const [key, val] of Object.entries(source)) {
+    const old = target[key];
+    if (old !== undefined && old !== val) {
+      logger.debug(`Variable "${key}" overridden by ${location} (was: "${old}", now: "${val}")`);
+    }
+    target[key] = val;
+  }
 }

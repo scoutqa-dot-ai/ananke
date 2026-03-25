@@ -1,13 +1,16 @@
-import { execa, type ResultPromise } from 'execa';
 import type { Hook } from '../types/index.js';
 import { interpolate, type Variables } from '../config/interpolate.js';
+import {
+  executeScript,
+  buildAnankeInput,
+  type ScriptOutput,
+} from '../runner/script.js';
 import type { Logger } from '../logger.js';
-
-const DEFAULT_TIMEOUT_MS = 30000;
 
 export interface HookResult {
   variables: Variables;
   stdout: string;
+  action?: ScriptOutput['action'];
 }
 
 export interface ExecuteHookOptions {
@@ -16,86 +19,50 @@ export interface ExecuteHookOptions {
 }
 
 /**
- * Execute a single hook and parse its JSON output
- * @param hook The hook configuration
- * @param options Execution options (variables, logger)
+ * Execute a single hook using the unified script contract.
  */
 export async function executeHook(hook: Hook, options: ExecuteHookOptions = {}): Promise<HookResult> {
   const { currentVars = {}, logger } = options;
-  const [cmd, ...args] = hook.cmd;
-  const timeout = hook.timeout_ms ?? DEFAULT_TIMEOUT_MS;
 
   logger?.trace(`[Hook] Running: ${hook.cmd.join(' ')}`);
 
-  // Build environment with interpolated values
-  let env: NodeJS.ProcessEnv | undefined;
+  // Build interpolated env from hook.env
+  const extraEnv: Record<string, string> = {};
   if (hook.env) {
-    env = { ...process.env };
     for (const [key, value] of Object.entries(hook.env)) {
       const interpolated = interpolate(value, currentVars);
-      env[key] = interpolated;
+      extraEnv[key] = interpolated;
       logger?.trace(`[Hook] Env: ${key}=${interpolated}`);
     }
   }
 
-  let subprocess: ResultPromise;
-  try {
-    subprocess = execa(cmd, args, {
-      timeout,
-      reject: true,
-      env,
-    });
-  } catch (err) {
-    logger?.trace(`[Hook] Failed to start: ${(err as Error).message}`);
-    throw new Error(`Failed to start hook: ${hook.cmd.join(' ')}`);
+  // Hooks use cmd array — preserve argv boundaries via args mode
+  const [cmd, ...args] = hook.cmd;
+  const config = {
+    run: cmd,
+    args,
+    timeout_ms: hook.timeout_ms ?? 30_000,
+  };
+
+  const ananke = buildAnankeInput({ variables: currentVars });
+
+  const result = await executeScript(config, ananke, 'hook', {
+    logger,
+    extraEnv,
+  });
+
+  // Non-zero exit code = failure
+  if (result.exitCode !== 0) {
+    throw new Error(`Hook failed: ${hook.cmd.join(' ')}\n${result.stderr}`);
   }
 
-  const result = await subprocess;
-  logger?.trace(`[Hook] Exit code: ${result.exitCode}`);
+  logger?.trace(`[Hook] Variables: ${Object.keys(result.output.variables).join(', ') || '(none)'}`);
 
-  // Log stderr if present (useful for debugging)
-  const stderrRaw = result.stderr;
-  const stderr = typeof stderrRaw === 'string' ? stderrRaw.trim() : '';
-  if (stderr) {
-    logger?.trace(`[Hook] Stderr: ${stderr.slice(0, 200)}${stderr.length > 200 ? '...' : ''}`);
-  }
-
-  const stdoutRaw = result.stdout;
-  const stdout = typeof stdoutRaw === 'string' ? stdoutRaw.trim() : '';
-  if (!stdout) {
-    logger?.trace(`[Hook] No output`);
-    return { variables: {}, stdout: '' };
-  }
-
-  logger?.trace(`[Hook] Stdout: ${stdout.slice(0, 200)}${stdout.length > 200 ? '...' : ''}`);
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stdout);
-  } catch {
-    let errMsg = `Hook output is not valid JSON: ${hook.cmd.join(' ')}\nStdout: ${stdout}`;
-    if (stderr) {
-      errMsg += `\nStderr: ${stderr}`;
-    }
-    throw new Error(errMsg);
-  }
-
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    let errMsg = `Hook output must be a JSON object: ${hook.cmd.join(' ')}\nStdout: ${stdout}`;
-    if (stderr) {
-      errMsg += `\nStderr: ${stderr}`;
-    }
-    throw new Error(errMsg);
-  }
-
-  // Convert all values to strings for the variable map
-  const variables: Variables = {};
-  for (const [key, value] of Object.entries(parsed)) {
-    variables[key] = String(value);
-  }
-
-  logger?.trace(`[Hook] Variables: ${Object.keys(variables).join(', ') || '(none)'}`);
-  return { variables, stdout };
+  return {
+    variables: result.output.variables,
+    stdout: JSON.stringify(result.output),
+    action: result.output.action,
+  };
 }
 
 export interface ExecuteHooksOptions {
@@ -103,15 +70,28 @@ export interface ExecuteHooksOptions {
 }
 
 /**
- * Execute all hooks and merge their outputs
+ * Execute all hooks and merge their outputs.
+ * Supports skip_hook (skip one hook) and skip_test (stop test with SKIP).
  */
-export async function executeHooks(hooks: Hook[], options: ExecuteHooksOptions = {}): Promise<Variables> {
+export async function executeHooks(hooks: Hook[], options: ExecuteHooksOptions = {}): Promise<{ variables: Variables; skipped: boolean }> {
   const variables: Variables = {};
+  const { logger } = options;
 
   for (const hook of hooks) {
-    const result = await executeHook(hook, { currentVars: variables, logger: options.logger });
+    const result = await executeHook(hook, { currentVars: variables, logger });
+
+    if (result.action === 'skip_test') {
+      logger?.debug('[Hook] skip_test — stopping test');
+      return { variables, skipped: true };
+    }
+
+    if (result.action === 'skip_hook') {
+      logger?.debug('[Hook] skip_hook — skipping this hook');
+      continue;
+    }
+
     Object.assign(variables, result.variables);
   }
 
-  return variables;
+  return { variables, skipped: false };
 }

@@ -170,12 +170,12 @@ describe("mergeAssertBlocks", () => {
         endTs: 2000,
       };
 
-      const evalResult = evaluateTurnAssertions(turnData, resolved as any, {
+      const evalResult = await evaluateTurnAssertions(turnData, resolved as any, {
         namedAssertions: {},
       });
 
       // Should have exactly: tool_names + 2 durationMs checks (fast_turn + fast_test)
-      const durationResults = evalResult.results.filter(r => r.path?.join(" → ").includes("durationMs"));
+      const durationResults = evalResult.results.filter((r: any) => r.path?.join(" → ").includes("durationMs"));
       expect(durationResults).toHaveLength(2);
       expect(evalResult.passed).toBe(true);
     });

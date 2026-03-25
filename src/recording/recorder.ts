@@ -69,6 +69,26 @@ export async function recordHookOutput(
 }
 
 /**
+ * Get the path for a script turn's output file
+ */
+export function getScriptTurnFilePath(testDir: string, turnIndex: number): string {
+  return join(testDir, `script-turn-${turnIndex}.json`);
+}
+
+/**
+ * Record script turn output (variables, message, action)
+ */
+export async function recordScriptTurnOutput(
+  testDir: string,
+  turnIndex: number,
+  output: { variables: Variables; message?: string; action?: string }
+): Promise<void> {
+  const filePath = getScriptTurnFilePath(testDir, turnIndex);
+  await ensureRecordingDir(dirname(filePath));
+  await writeFile(filePath, JSON.stringify(output, null, 2));
+}
+
+/**
  * Create a recording wrapper for an event generator
  */
 export function createRecordingGenerator(

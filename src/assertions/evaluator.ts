@@ -1,4 +1,3 @@
-import { execaCommandSync } from "execa";
 import type { AssertionResult, EvalContext } from "./types.js";
 import {
   matchesPattern,
@@ -59,6 +58,11 @@ function normalizeToArray(value: unknown): string[] {
   return [value as string];
 }
 
+/** Create a child context with an extended path */
+function child(ctx: EvalContext, ...segments: string[]): EvalContext {
+  return { ...ctx, path: [...ctx.path, ...segments] };
+}
+
 // ---------------------------------------------------------------------------
 // Main evaluator
 // ---------------------------------------------------------------------------
@@ -84,7 +88,7 @@ export function evaluate(
       const filterResults = evaluate(
         element,
         filterNode,
-        { path: [...ctx.path, "filter"], logger: ctx.logger }
+        child(ctx, "filter")
       );
       return filterResults.every((r) => r.passed);
     });
@@ -93,7 +97,7 @@ export function evaluate(
   for (const key of keys) {
     if (key === "filter" && Array.isArray(value)) continue; // already handled
     const operand = node[key];
-    const childCtx: EvalContext = { path: [...ctx.path, key], logger: ctx.logger };
+    const childCtx = child(ctx, key);
 
     switch (key) {
       // --- String / Array assertions ---
@@ -367,10 +371,7 @@ function evalEvery(
   // Vacuous truth: empty array passes
   const results: AssertionResult[] = [];
   for (let i = 0; i < value.length; i++) {
-    const elementResults = evaluate(value[i], node, {
-      path: [...ctx.path, `[${i}]`],
-      logger: ctx.logger,
-    });
+    const elementResults = evaluate(value[i], node, child(ctx, `[${i}]`));
     const failures = elementResults.filter((r) => !r.passed);
     if (failures.length > 0) {
       results.push(...failures);
@@ -420,10 +421,7 @@ function evalNone(
   }
   const results: AssertionResult[] = [];
   for (let i = 0; i < value.length; i++) {
-    const elementResults = evaluate(value[i], node, {
-      path: [...ctx.path, `[${i}]`],
-      logger: ctx.logger,
-    });
+    const elementResults = evaluate(value[i], node, child(ctx, `[${i}]`));
     const failures = elementResults.filter((r) => !r.passed);
     if (failures.length === 0) {
       // This element passed the assertion — which means it shouldn't have
@@ -510,17 +508,14 @@ function evalHaving(
     const result = getNestedValue(value, dotPath);
     if (!result.found) {
       results.push(
-        fail("having", { path: [...ctx.path, dotPath], logger: ctx.logger }, {
+        fail("having", child(ctx, dotPath), {
           expected: `path "${dotPath}" exists`,
           actual: "path not found",
         })
       );
     } else {
       results.push(
-        ...evaluate(result.value, assertNode, {
-          path: [...ctx.path, dotPath],
-          logger: ctx.logger,
-        })
+        ...evaluate(result.value, assertNode, child(ctx, dotPath))
       );
     }
   }
@@ -624,59 +619,24 @@ function evalNot(
 }
 
 // ---------------------------------------------------------------------------
-// Script
+// Script (delegates to shared executor via EvalContext.scriptRunner)
 // ---------------------------------------------------------------------------
-
-interface ScriptConfig {
-  run: string;
-  timeout_ms?: number;
-  env?: Record<string, string>;
-}
-
-function extractErrorReason(err: unknown): string {
-  if (typeof err !== "object" || err === null) return "script failed";
-  // execa errors have a stderr property with captured output
-  if ("stderr" in err && typeof err.stderr === "string" && err.stderr.trim()) {
-    return err.stderr.trim();
-  }
-  if (err instanceof Error) return err.message;
-  return "script failed";
-}
-
-function normalizeScriptConfig(operand: unknown): ScriptConfig {
-  if (typeof operand === "string") {
-    return { run: operand };
-  }
-  return operand as ScriptConfig;
-}
 
 function evalScript(
   value: unknown,
   operand: unknown,
   ctx: EvalContext
 ): AssertionResult {
-  const config = normalizeScriptConfig(operand);
-  const timeout = config.timeout_ms ?? 10000;
-  const encodedValue = JSON.stringify(value);
-
-  try {
-    execaCommandSync(config.run, {
-      input: encodedValue,
-      timeout,
-      shell: true,
-      env: {
-        ...config.env,
-        ASSERT_VALUE: encodedValue,
-      },
-      reject: true,
-    });
-    return pass("script", ctx);
-  } catch (err: unknown) {
-    // execa errors have stderr/shortMessage; fall back to message
-    const reason = extractErrorReason(err);
+  if (!ctx.scriptRunner) {
     return fail("script", ctx, {
-      expected: "exit code 0",
-      actual: truncate(reason),
+      expected: "script runner configured",
+      actual: "no scriptRunner in EvalContext — cannot run script assertions",
     });
   }
+
+  // scriptRunner is synchronous from the evaluator's perspective —
+  // the runner schedules async execution and caches the result.
+  // For now, we queue the script and return a pending marker that
+  // the engine resolves. See engine.ts for the async wrapper.
+  return ctx.scriptRunner(value, operand, ctx);
 }

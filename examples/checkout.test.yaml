@@ -3,7 +3,7 @@ version: "1.0"
 name: checkout flow with validation
 
 hooks:
-  - cmd: ["echo", "{\"THREAD_ID\": \"th_123\"}"]
+  - cmd: ["echo", "{\"variables\": {\"THREAD_ID\": \"th_123\"}}"]
     timeout_ms: 10000
 
 turns:

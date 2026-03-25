@@ -6,6 +6,7 @@ import {
   getTestRecordingDir,
   getTurnFilePath,
   getHookFilePath,
+  getScriptTurnFilePath,
 } from "./recorder.js";
 
 /**
@@ -46,6 +47,25 @@ export async function loadHookOutput(
 
   const content = await readFile(filePath, "utf-8");
   return JSON.parse(content) as Variables;
+}
+
+/**
+ * Load script turn output from recording
+ */
+export async function loadScriptTurnOutput(
+  baseDir: string,
+  testFilePath: string,
+  turnIndex: number
+): Promise<{ variables: Variables; message?: string; action?: string } | null> {
+  const testDir = getTestRecordingDir(baseDir, testFilePath);
+  const filePath = getScriptTurnFilePath(testDir, turnIndex);
+
+  if (!existsSync(filePath)) {
+    return null;
+  }
+
+  const content = await readFile(filePath, "utf-8");
+  return JSON.parse(content);
 }
 
 /**

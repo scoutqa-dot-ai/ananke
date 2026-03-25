@@ -2,18 +2,18 @@ import { describe, it, expect } from "vitest";
 import { interpolate, interpolateObject } from "./interpolate.js";
 
 describe("interpolate", () => {
-  it("replaces ${VAR} with variable value", () => {
-    const result = interpolate("Hello ${NAME}!", { NAME: "World" });
+  it("replaces ${VAR.NAME} with variable value", () => {
+    const result = interpolate("Hello ${VAR.NAME}!", { NAME: "World" });
     expect(result).toBe("Hello World!");
   });
 
   it("replaces multiple variables", () => {
-    const result = interpolate("${GREETING} ${NAME}!", { GREETING: "Hi", NAME: "User" });
+    const result = interpolate("${VAR.GREETING} ${VAR.NAME}!", { GREETING: "Hi", NAME: "User" });
     expect(result).toBe("Hi User!");
   });
 
   it("throws on unset variable", () => {
-    expect(() => interpolate("Hello ${UNKNOWN}!", {})).toThrow(
+    expect(() => interpolate("Hello ${VAR.UNKNOWN}!", {})).toThrow(
       'Variable "UNKNOWN" is not defined'
     );
   });
@@ -36,7 +36,7 @@ describe("interpolate", () => {
 describe("interpolateObject", () => {
   it("interpolates string values in object", () => {
     const result = interpolateObject(
-      { greeting: "Hello ${NAME}", count: 42 },
+      { greeting: "Hello ${VAR.NAME}", count: 42 },
       { NAME: "World" }
     );
     expect(result).toEqual({ greeting: "Hello World", count: 42 });
@@ -44,15 +44,15 @@ describe("interpolateObject", () => {
 
   it("interpolates nested objects", () => {
     const result = interpolateObject(
-      { outer: { inner: "${VAR}" } },
-      { VAR: "value" }
+      { outer: { inner: "${VAR.X}" } },
+      { X: "value" }
     );
     expect(result).toEqual({ outer: { inner: "value" } });
   });
 
   it("preserves arrays and interpolates string elements", () => {
     const result = interpolateObject(
-      { items: ["${A}", "${B}", "literal"] },
+      { items: ["${VAR.A}", "${VAR.B}", "literal"] },
       { A: "first", B: "second" }
     );
     expect(result).toEqual({ items: ["first", "second", "literal"] });
@@ -61,7 +61,7 @@ describe("interpolateObject", () => {
 
   it("handles arrays of objects", () => {
     const result = interpolateObject(
-      { list: [{ name: "${NAME}" }, { value: 123 }] },
+      { list: [{ name: "${VAR.NAME}" }, { value: 123 }] },
       { NAME: "test" }
     );
     expect(result).toEqual({ list: [{ name: "test" }, { value: 123 }] });
@@ -70,7 +70,7 @@ describe("interpolateObject", () => {
 
   it("handles nested arrays", () => {
     const result = interpolateObject(
-      { matrix: [["${A}", "${B}"], ["${C}"]] },
+      { matrix: [["${VAR.A}", "${VAR.B}"], ["${VAR.C}"]] },
       { A: "1", B: "2", C: "3" }
     );
     expect(result).toEqual({ matrix: [["1", "2"], ["3"]] });
@@ -80,8 +80,8 @@ describe("interpolateObject", () => {
 
   it("preserves non-string primitives in arrays", () => {
     const result = interpolateObject(
-      { values: [1, true, null, "${VAR}"] },
-      { VAR: "str" }
+      { values: [1, true, null, "${VAR.X}"] },
+      { X: "str" }
     );
     expect(result).toEqual({ values: [1, true, null, "str"] });
   });

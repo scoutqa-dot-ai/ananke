@@ -139,7 +139,14 @@ const ConnectTurnSchema = z.object({
   assert: AssertBlockSchema.optional(),
 }).strict();
 
-const TurnSchema = z.union([UserTurnSchema, ConnectTurnSchema]);
+// Script turn — dynamically generates user message via a script
+const ScriptTurnSchema = z.object({
+  type: z.literal("script"),
+  script: ScriptSchema,
+  assert: AssertBlockSchema.optional(),
+}).strict();
+
+const TurnSchema = z.union([UserTurnSchema, ConnectTurnSchema, ScriptTurnSchema]);
 
 export const TestFileSchema = z.object({
   version: z.string(),
@@ -155,6 +162,7 @@ export type TestFile = z.infer<typeof TestFileSchema>;
 export type Turn = z.infer<typeof TurnSchema>;
 export type UserTurn = z.infer<typeof UserTurnSchema>;
 export type ConnectTurn = z.infer<typeof ConnectTurnSchema>;
+export type ScriptTurn = z.infer<typeof ScriptTurnSchema>;
 export type Hook = z.infer<typeof HookSchema>;
 
 // Type guards
@@ -164,4 +172,8 @@ export function isUserTurn(turn: Turn): turn is UserTurn {
 
 export function isConnectTurn(turn: Turn): turn is ConnectTurn {
   return turn.type === "agui:connect";
+}
+
+export function isScriptTurn(turn: Turn): turn is ScriptTurn {
+  return "type" in turn && turn.type === "script";
 }

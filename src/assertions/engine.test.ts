@@ -24,91 +24,91 @@ const makeTurnData = (overrides: Partial<TurnData> = {}): TurnData => ({
 });
 
 describe("evaluateTurnAssertions", () => {
-  it("passes with empty assertions", () => {
-    const result = evaluateTurnAssertions(makeTurnData(), {});
+  it("passes with empty assertions", async () => {
+    const result = await evaluateTurnAssertions(makeTurnData(), {});
     expect(result.passed).toBe(true);
     expect(result.results).toHaveLength(0);
   });
 
-  it("evaluates text selector", () => {
+  it("evaluates text selector", async () => {
     const turnData = makeTurnData({ assistantText: "Hello Kai from TestOps" });
-    const result = evaluateTurnAssertions(turnData, {
+    const result = await evaluateTurnAssertions(turnData, {
       text: { matches: ["Kai", "TestOps"] },
     });
     expect(result.passed).toBe(true);
   });
 
-  it("evaluates tool_names selector", () => {
+  it("evaluates tool_names selector", async () => {
     const turnData = makeTurnData({
       toolCalls: [
         makeToolCall("intent_agent"),
         makeToolCall("get_project_status"),
       ],
     });
-    const result = evaluateTurnAssertions(turnData, {
+    const result = await evaluateTurnAssertions(turnData, {
       tool_names: { some: { equals: "get_project_status" } },
     });
     expect(result.passed).toBe(true);
   });
 
-  it("evaluates tools selector with count", () => {
+  it("evaluates tools selector with count", async () => {
     const turnData = makeTurnData({
       toolCalls: [makeToolCall("tool1"), makeToolCall("tool2")],
     });
-    const result = evaluateTurnAssertions(turnData, {
+    const result = await evaluateTurnAssertions(turnData, {
       tools: { count: { equals: 2 } },
     });
     expect(result.passed).toBe(true);
   });
 
-  it("evaluates response selector with durationMs", () => {
+  it("evaluates response selector with durationMs", async () => {
     const turnData = makeTurnData({ startTs: 1000, endTs: 6000 });
-    const result = evaluateTurnAssertions(turnData, {
+    const result = await evaluateTurnAssertions(turnData, {
       response: { having: { durationMs: { max: 10000 } } },
     });
     expect(result.passed).toBe(true);
   });
 
-  it("fails response durationMs when exceeded", () => {
+  it("fails response durationMs when exceeded", async () => {
     const turnData = makeTurnData({ startTs: 1000, endTs: 20000 });
-    const result = evaluateTurnAssertions(turnData, {
+    const result = await evaluateTurnAssertions(turnData, {
       response: { having: { durationMs: { max: 10000 } } },
     });
     expect(result.passed).toBe(false);
   });
 
-  it("evaluates response selector with idleMs", () => {
+  it("evaluates response selector with idleMs", async () => {
     const turnData = makeTurnData({
       startTs: 1000,
       endTs: 5000,
       toolCalls: [makeToolCall("t1", {}, "ok", 2000)],
     });
     // max idle gap: max(2000-1000, 5000-2000) = 3000
-    const result = evaluateTurnAssertions(turnData, {
+    const result = await evaluateTurnAssertions(turnData, {
       response: { having: { idleMs: { max: 5000 } } },
     });
     expect(result.passed).toBe(true);
   });
 
-  it("fails response idleMs when exceeded", () => {
+  it("fails response idleMs when exceeded", async () => {
     const turnData = makeTurnData({
       startTs: 1000,
       endTs: 20000,
       toolCalls: [],
     });
     // No tools → idle = 19000
-    const result = evaluateTurnAssertions(turnData, {
+    const result = await evaluateTurnAssertions(turnData, {
       response: { having: { idleMs: { max: 10000 } } },
     });
     expect(result.passed).toBe(false);
   });
 
-  it("evaluates response selector with raw fields via having", () => {
+  it("evaluates response selector with raw fields via having", async () => {
     const turnData = makeTurnData({
       assistantText: "Hello world",
       toolCalls: [makeToolCall("t1"), makeToolCall("t2")],
     });
-    const result = evaluateTurnAssertions(turnData, {
+    const result = await evaluateTurnAssertions(turnData, {
       response: {
         having: {
           toolCalls: { count: { equals: 2 } },
@@ -119,14 +119,14 @@ describe("evaluateTurnAssertions", () => {
     expect(result.passed).toBe(true);
   });
 
-  it("evaluates multiple selectors (implicit AND)", () => {
+  it("evaluates multiple selectors (implicit AND)", async () => {
     const turnData = makeTurnData({
       assistantText: "Here is the status",
       toolCalls: [makeToolCall("get_status")],
       startTs: 1000,
       endTs: 3000,
     });
-    const result = evaluateTurnAssertions(turnData, {
+    const result = await evaluateTurnAssertions(turnData, {
       text: { matches: "status" },
       tool_names: { some: { equals: "get_status" } },
       response: { having: { durationMs: { max: 5000 } } },
@@ -134,12 +134,12 @@ describe("evaluateTurnAssertions", () => {
     expect(result.passed).toBe(true);
   });
 
-  it("top-level or: passes when one branch passes", () => {
+  it("top-level or: passes when one branch passes", async () => {
     const turnData = makeTurnData({
       assistantText: "Here is a draft report",
       toolCalls: [makeToolCall("generate_urls")],
     });
-    const result = evaluateTurnAssertions(turnData, {
+    const result = await evaluateTurnAssertions(turnData, {
       or: [
         {
           text: { matches: "draft|report" },
@@ -154,12 +154,12 @@ describe("evaluateTurnAssertions", () => {
     expect(result.passed).toBe(true);
   });
 
-  it("top-level or: fails when all branches fail", () => {
+  it("top-level or: fails when all branches fail", async () => {
     const turnData = makeTurnData({
       assistantText: "Something unexpected",
       toolCalls: [makeToolCall("random_tool")],
     });
-    const result = evaluateTurnAssertions(turnData, {
+    const result = await evaluateTurnAssertions(turnData, {
       or: [
         { text: { matches: "draft" } },
         { text: { matches: "clarify" } },
@@ -170,34 +170,34 @@ describe("evaluateTurnAssertions", () => {
 });
 
 describe("top-level script assertion", () => {
-  it("passes when script succeeds", () => {
+  it("passes when script succeeds", async () => {
     const turnData = makeTurnData({ assistantText: "hello" });
-    const result = evaluateTurnAssertions(turnData, { script: "true" } as any);
+    const result = await evaluateTurnAssertions(turnData, { script: "true" } as any);
     expect(result.passed).toBe(true);
   });
 
-  it("fails when script fails", () => {
+  it("fails when script fails", async () => {
     const turnData = makeTurnData({ assistantText: "hello" });
-    const result = evaluateTurnAssertions(turnData, { script: "false" } as any);
+    const result = await evaluateTurnAssertions(turnData, { script: "false" } as any);
     expect(result.passed).toBe(false);
   });
 
-  it("receives turn context as ASSERT_VALUE", () => {
+  it("receives turn context as ANANKE", async () => {
     const turnData = makeTurnData({
       assistantText: "hello world",
       toolCalls: [makeToolCall("search")],
     });
-    const result = evaluateTurnAssertions(turnData, {
-      script: 'echo "$ASSERT_VALUE" | grep -q "hello world"',
+    const result = await evaluateTurnAssertions(turnData, {
+      script: 'echo "$ANANKE" | grep -q "hello world"',
     } as any);
     expect(result.passed).toBe(true);
   });
 });
 
 describe("unknown keys after resolution", () => {
-  it("flags unresolved keys as errors", () => {
+  it("flags unresolved keys as errors", async () => {
     const turnData = makeTurnData();
-    const result = evaluateTurnAssertions(turnData, {
+    const result = await evaluateTurnAssertions(turnData, {
       typo_assertion: {},
     } as any);
     expect(result.passed).toBe(false);
@@ -206,7 +206,7 @@ describe("unknown keys after resolution", () => {
 });
 
 describe("named assertions integration", () => {
-  it("resolves a named assertion at the block level", () => {
+  it("resolves a named assertion at the block level", async () => {
     const turnData = makeTurnData({
       startTs: 1000,
       endTs: 5000,
@@ -214,7 +214,7 @@ describe("named assertions integration", () => {
     const named = {
       fast_response: { response: { having: { durationMs: { max: 15000 } } } },
     };
-    const result = evaluateTurnAssertions(
+    const result = await evaluateTurnAssertions(
       turnData,
       { fast_response: {} } as any,
       { namedAssertions: named }
@@ -222,7 +222,7 @@ describe("named assertions integration", () => {
     expect(result.passed).toBe(true);
   });
 
-  it("resolves parameterized named assertions", () => {
+  it("resolves parameterized named assertions", async () => {
     const turnData = makeTurnData({
       toolCalls: [
         makeToolCall("search"),
@@ -238,7 +238,7 @@ describe("named assertions integration", () => {
         },
       },
     };
-    const result = evaluateTurnAssertions(
+    const result = await evaluateTurnAssertions(
       turnData,
       { tool_called_n_times: { tool_name: "search", n: 2 } } as any,
       { namedAssertions: named }
@@ -246,7 +246,7 @@ describe("named assertions integration", () => {
     expect(result.passed).toBe(true);
   });
 
-  it("fails when parameterized assertion doesn't match", () => {
+  it("fails when parameterized assertion doesn't match", async () => {
     const turnData = makeTurnData({
       toolCalls: [makeToolCall("search")],
     });
@@ -258,7 +258,7 @@ describe("named assertions integration", () => {
         },
       },
     };
-    const result = evaluateTurnAssertions(
+    const result = await evaluateTurnAssertions(
       turnData,
       { tool_called_n_times: { tool_name: "search", n: 3 } } as any,
       { namedAssertions: named }
@@ -266,7 +266,7 @@ describe("named assertions integration", () => {
     expect(result.passed).toBe(false);
   });
 
-  it("combines named and built-in assertions", () => {
+  it("combines named and built-in assertions", async () => {
     const turnData = makeTurnData({
       assistantText: "Here is the status",
       startTs: 1000,
@@ -275,7 +275,7 @@ describe("named assertions integration", () => {
     const named = {
       fast_response: { response: { having: { durationMs: { max: 15000 } } } },
     };
-    const result = evaluateTurnAssertions(
+    const result = await evaluateTurnAssertions(
       turnData,
       {
         fast_response: {},
@@ -288,7 +288,7 @@ describe("named assertions integration", () => {
 });
 
 describe("evaluateTestAssertions", () => {
-  it("evaluates across all turns", () => {
+  it("evaluates across all turns", async () => {
     const testData: TestData = {
       turns: [
         makeTurnData({
@@ -308,14 +308,14 @@ describe("evaluateTestAssertions", () => {
       endTs: 5000,
     };
 
-    const result = evaluateTestAssertions(testData, {
+    const result = await evaluateTestAssertions(testData, {
       text: { matches: "Hello" },
       tool_names: { count: { equals: 2 } },
     });
     expect(result.passed).toBe(true);
   });
 
-  it("text is joined with newline across turns", () => {
+  it("text is joined with newline across turns", async () => {
     const testData: TestData = {
       turns: [],
       allToolCalls: [],
@@ -324,7 +324,7 @@ describe("evaluateTestAssertions", () => {
       endTs: 5000,
     };
 
-    const result = evaluateTestAssertions(testData, {
+    const result = await evaluateTestAssertions(testData, {
       text: { matches: "Hello\\nWorld" },
     });
     expect(result.passed).toBe(true);
