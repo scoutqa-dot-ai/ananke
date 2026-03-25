@@ -60,6 +60,18 @@ export function getNestedValue(
 
   let current: unknown = obj;
   for (const part of parts) {
+    // "json" as a path segment: parse the current string value as JSON
+    if (part === "json") {
+      if (typeof current === "string") {
+        try {
+          current = JSON.parse(current);
+        } catch {
+          return { found: false };
+        }
+      }
+      // If already parsed (non-string), pass through
+      continue;
+    }
     if (current === null || current === undefined) {
       return { found: false };
     }

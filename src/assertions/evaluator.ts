@@ -1,3 +1,4 @@
+import { execaCommandSync } from "execa";
 import type { AssertionResult, EvalContext } from "./types.js";
 import {
   matchesPattern,
@@ -186,6 +187,11 @@ export function evaluate(
         results.push(
           ...evalNot(effectiveValue, operand as AssertionNode, childCtx)
         );
+        break;
+
+      // --- Script ---
+      case "script":
+        results.push(evalScript(effectiveValue, operand, childCtx));
         break;
 
       default:
@@ -631,4 +637,62 @@ function evalNot(
       actual: "assertion passed",
     }),
   ];
+}
+
+// ---------------------------------------------------------------------------
+// Script
+// ---------------------------------------------------------------------------
+
+interface ScriptConfig {
+  run: string;
+  timeout_ms?: number;
+  env?: Record<string, string>;
+}
+
+function extractErrorReason(err: unknown): string {
+  if (typeof err !== "object" || err === null) return "script failed";
+  // execa errors have a stderr property with captured output
+  if ("stderr" in err && typeof err.stderr === "string" && err.stderr.trim()) {
+    return err.stderr.trim();
+  }
+  if (err instanceof Error) return err.message;
+  return "script failed";
+}
+
+function normalizeScriptConfig(operand: unknown): ScriptConfig {
+  if (typeof operand === "string") {
+    return { run: operand };
+  }
+  return operand as ScriptConfig;
+}
+
+function evalScript(
+  value: unknown,
+  operand: unknown,
+  ctx: EvalContext
+): AssertionResult {
+  const config = normalizeScriptConfig(operand);
+  const timeout = config.timeout_ms ?? 10000;
+  const encodedValue = JSON.stringify(value);
+
+  try {
+    execaCommandSync(config.run, {
+      input: encodedValue,
+      timeout,
+      shell: true,
+      env: {
+        ...config.env,
+        ASSERT_VALUE: encodedValue,
+      },
+      reject: true,
+    });
+    return { passed: true, assertion: "script", path: ctx.path };
+  } catch (err: unknown) {
+    // execa errors have stderr/shortMessage; fall back to message
+    const reason = extractErrorReason(err);
+    return fail("script", ctx, {
+      expected: "exit code 0",
+      actual: truncate(reason),
+    });
+  }
 }

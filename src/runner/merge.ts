@@ -62,5 +62,21 @@ export function mergeAssertBlocks(
     merged.and = andBranches;
   }
 
+  // Preserve non-selector, non-meta keys (named assertions, script, etc.)
+  const knownKeys = new Set([...SELECTOR_KEYS, "or", "and", "not"]);
+  for (const level of levels) {
+    for (const [key, value] of Object.entries(level)) {
+      if (knownKeys.has(key)) continue;
+      if (key in merged) {
+        // Key collision across levels: wrap in AND
+        andBranches.push({ [key]: merged[key] }, { [key]: value });
+        delete merged[key];
+        if (!merged.and) merged.and = andBranches;
+      } else {
+        merged[key] = value;
+      }
+    }
+  }
+
   return merged;
 }

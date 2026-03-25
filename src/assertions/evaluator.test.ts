@@ -478,6 +478,60 @@ describe("evaluate", () => {
   });
 
   // -----------------------------------------------------------------------
+  // Script assertions
+  // -----------------------------------------------------------------------
+  describe("script assertions", () => {
+    it("short form passes on exit code 0", () => {
+      expect(failures("hello", { script: "true" })).toHaveLength(0);
+    });
+
+    it("short form fails on non-zero exit code", () => {
+      expect(failures("hello", { script: "false" })).toHaveLength(1);
+    });
+
+    it("passes ASSERT_VALUE env var", () => {
+      expect(
+        failures("test_value", {
+          script: 'echo "$ASSERT_VALUE" | grep -q "test_value"',
+        })
+      ).toHaveLength(0);
+    });
+
+    it("long form with run field", () => {
+      expect(
+        failures("hello", { script: { run: "true" } })
+      ).toHaveLength(0);
+    });
+
+    it("long form with custom env", () => {
+      expect(
+        failures("hello", {
+          script: {
+            run: 'test "$MY_VAR" = "expected"',
+            env: { MY_VAR: "expected" },
+          },
+        })
+      ).toHaveLength(0);
+    });
+
+    it("captures stderr as failure reason", () => {
+      const result = failures("hello", {
+        script: "echo 'something went wrong' >&2 && false",
+      });
+      expect(result).toHaveLength(1);
+      expect(result[0].actual).toContain("something went wrong");
+    });
+
+    it("reads value from stdin", () => {
+      expect(
+        failures({ key: "val" }, {
+          script: 'cat | grep -q "key"',
+        })
+      ).toHaveLength(0);
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // Complex: doc examples
   // -----------------------------------------------------------------------
   describe("doc examples", () => {

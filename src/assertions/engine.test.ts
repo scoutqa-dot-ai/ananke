@@ -153,6 +153,124 @@ describe("evaluateTurnAssertions", () => {
   });
 });
 
+describe("top-level script assertion", () => {
+  it("passes when script succeeds", () => {
+    const turnData = makeTurnData({ assistantText: "hello" });
+    const result = evaluateTurnAssertions(turnData, { script: "true" } as any);
+    expect(result.passed).toBe(true);
+  });
+
+  it("fails when script fails", () => {
+    const turnData = makeTurnData({ assistantText: "hello" });
+    const result = evaluateTurnAssertions(turnData, { script: "false" } as any);
+    expect(result.passed).toBe(false);
+  });
+
+  it("receives turn context as ASSERT_VALUE", () => {
+    const turnData = makeTurnData({
+      assistantText: "hello world",
+      toolCalls: [makeToolCall("search")],
+    });
+    const result = evaluateTurnAssertions(turnData, {
+      script: 'echo "$ASSERT_VALUE" | grep -q "hello world"',
+    } as any);
+    expect(result.passed).toBe(true);
+  });
+});
+
+describe("unknown keys after resolution", () => {
+  it("flags unresolved keys as errors", () => {
+    const turnData = makeTurnData();
+    const result = evaluateTurnAssertions(turnData, {
+      typo_assertion: {},
+    } as any);
+    expect(result.passed).toBe(false);
+    expect(result.results[0].assertion).toContain('Unknown assertion "typo_assertion"');
+  });
+});
+
+describe("named assertions integration", () => {
+  it("resolves a named assertion at the block level", () => {
+    const turnData = makeTurnData({
+      startTs: 1000,
+      endTs: 5000,
+    });
+    const named = {
+      fast_response: { duration_ms: { max: 15000 } },
+    };
+    const result = evaluateTurnAssertions(
+      turnData,
+      { fast_response: {} } as any,
+      named
+    );
+    expect(result.passed).toBe(true);
+  });
+
+  it("resolves parameterized named assertions", () => {
+    const turnData = makeTurnData({
+      toolCalls: [
+        makeToolCall("search"),
+        makeToolCall("search"),
+        makeToolCall("lookup"),
+      ],
+    });
+    const named = {
+      tool_called_n_times: {
+        tools: {
+          filter: { having: { name: { equals: "${tool_name}" } } },
+          count: { equals: "${n}" },
+        },
+      },
+    };
+    const result = evaluateTurnAssertions(
+      turnData,
+      { tool_called_n_times: { tool_name: "search", n: 2 } } as any,
+      named
+    );
+    expect(result.passed).toBe(true);
+  });
+
+  it("fails when parameterized assertion doesn't match", () => {
+    const turnData = makeTurnData({
+      toolCalls: [makeToolCall("search")],
+    });
+    const named = {
+      tool_called_n_times: {
+        tools: {
+          filter: { having: { name: { equals: "${tool_name}" } } },
+          count: { equals: "${n}" },
+        },
+      },
+    };
+    const result = evaluateTurnAssertions(
+      turnData,
+      { tool_called_n_times: { tool_name: "search", n: 3 } } as any,
+      named
+    );
+    expect(result.passed).toBe(false);
+  });
+
+  it("combines named and built-in assertions", () => {
+    const turnData = makeTurnData({
+      assistantText: "Here is the status",
+      startTs: 1000,
+      endTs: 3000,
+    });
+    const named = {
+      fast_response: { duration_ms: { max: 15000 } },
+    };
+    const result = evaluateTurnAssertions(
+      turnData,
+      {
+        fast_response: {},
+        text: { matches: "status" },
+      } as any,
+      named
+    );
+    expect(result.passed).toBe(true);
+  });
+});
+
 describe("evaluateTestAssertions", () => {
   it("evaluates across all turns", () => {
     const testData: TestData = {

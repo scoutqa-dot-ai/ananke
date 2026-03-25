@@ -6,6 +6,7 @@
 2. **Selectors**: built-in selectors extract common data from the response, feeding it into primitive assertions
 3. **Composable**: `and`, `or`, `not` combinators allow arbitrary business logic
 4. **Uniform**: the same assertion vocabulary works regardless of what produced the value
+5. **Reusable**: named assertions defined once in the config, used by name across all tests
 
 ## Response Object
 
@@ -54,7 +55,7 @@ Data flows: **selector → transform\* → assertion**
 
 ### Selectors
 
-Selectors are the top-level keys in an assert block. Each extracts a typed value from the response.
+Selectors are the top-level keys in an `assert` block. Each extracts a typed value from the response.
 
 | Selector | Type | Extracts |
 |---|---|---|
@@ -130,8 +131,206 @@ Use `not: { has_key: "x" }` to assert a key does not exist.
 | `and` | All assertions must pass |
 | `or` | At least one assertion must pass |
 | `not` | Invert the result |
+| `script` | Custom script evaluates the value |
 
 Multiple keys at the same level are implicitly ANDed.
+
+## Named Assertions
+
+Named assertions are reusable assertion trees defined once in `ananke.config.yaml` and referenced by name in any test file. They behave as custom operators — the evaluator resolves them by name at evaluation time.
+
+### Defining named assertions
+
+Named assertions live in the `assertions` block of `ananke.config.yaml`:
+
+```yaml
+# ananke.config.yaml
+version: "1.0"
+
+target:
+  type: agui
+  endpoint: "https://app.example.com/ag-ui"
+
+assertions:
+  fast_response:
+    duration_ms: { max: 15000 }
+
+  calls_intent_agent:
+    tool_names:
+      some: { equals: "intent_agent" }
+
+  no_stability_tools:
+    tool_names:
+      none: { matches: "stability_.*" }
+
+  tool_called_n_times:
+    tools:
+      filter:
+        having:
+          name: { equals: "${tool_name}" }
+      count: { equals: "${n}" }
+```
+
+### Using named assertions
+
+Named assertions are used by name, exactly like built-in operators:
+
+```yaml
+turns:
+  - user: "What's the status of project P1?"
+    assert:
+      fast_response: {}
+      calls_intent_agent: {}
+      text: { matches: "status" }
+```
+
+Multiple named assertions at the same level are implicitly ANDed, just like built-in operators.
+
+### Parameterized assertions
+
+Use `${param}` placeholders in the definition body. No explicit declaration needed — parameters are resolved from the call-site object:
+
+```yaml
+# Definition (in ananke.config.yaml)
+assertions:
+  tool_called_n_times:
+    tools:
+      filter:
+        having:
+          name: { equals: "${tool_name}" }
+      count: { equals: "${n}" }
+
+  completes_within:
+    duration_ms:
+      max: "${ms}"
+```
+
+```yaml
+# Usage (in test file)
+turns:
+  - user: "Find iterations"
+    assert:
+      tool_called_n_times: { tool_name: "search", n: 2 }
+      completes_within: { ms: 10000 }
+```
+
+When the value is an object, its keys are treated as parameter substitutions. When the value is `{}` (empty object), no substitution occurs. Unresolved `${param}` placeholders at evaluation time produce an error.
+
+### Composing named assertions
+
+Named assertions work inside `and`, `or`, `not` like any other operator:
+
+```yaml
+turns:
+  - user: "Generate report"
+    assert:
+      or:
+        - and:
+            - calls_intent_agent: {}
+            - fast_response: {}
+        - and:
+            - text: { matches: "clarif|which" }
+            - tools: { count: { equals: 0 } }
+```
+
+### Name resolution
+
+When the evaluator encounters a key:
+
+1. Is it a built-in operator (`equals`, `contains`, `text`, etc.)? → Use it.
+2. Is it a named assertion in `ananke.config.yaml`? → Expand and evaluate.
+3. Neither? → Error: unknown operator.
+
+Named assertions **cannot** shadow built-in operators. A definition with a built-in name produces a load-time error.
+
+## Script
+
+`script` is a meta assertion that runs a custom command to evaluate the current value. Use it to verify side effects — database state, file system changes, external API calls, webhook delivery, etc.
+
+**Short form** — accepts a string (the command to run, with default timeout and no extra env):
+
+```yaml
+script: "scripts/verify_user_exists.sh"
+```
+
+**Long form** — accepts an object for full control:
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `run` | string | yes | Command or script path to execute |
+| `timeout_ms` | number | no | Max execution time. Default: `10000` |
+| `env` | object | no | Additional environment variables |
+
+The current value is passed to the script via:
+- `ASSERT_VALUE` env var (JSON-encoded)
+- `stdin` (JSON-encoded)
+- `ASSERT_CONTEXT` env var contains the full turn/test context (JSON)
+
+**Pass/fail rules:**
+- Exit code `0` → pass
+- Exit code non-zero → fail; stderr is captured as the failure reason
+
+```yaml
+# Short form
+turns:
+  - user: "Create user John"
+    assert:
+      tools:
+        some:
+          having:
+            name: { equals: "create_user" }
+            result.json.user_id:
+              script: "scripts/verify_user_exists.sh"
+
+# Long form — custom timeout and env
+turns:
+  - user: "Send the webhook"
+    assert:
+      script:
+        run: "scripts/check_webhook_received.sh"
+        timeout_ms: 15000
+        env:
+          EXPECTED_EVENT: "user.created"
+
+# Short form with inline command
+turns:
+  - user: "Write the config file"
+    assert:
+      tools:
+        some:
+          having:
+            name: { equals: "write_file" }
+            args.path:
+              script: 'test -f "$ASSERT_VALUE" && grep -q "expected content" "$ASSERT_VALUE"'
+```
+
+**Security:** Scripts must be committed to the repository. The runner resolves script paths relative to the project root. Scripts execute with the test runner's permissions.
+
+### As a named assertion
+
+```yaml
+# ananke.config.yaml
+assertions:
+  db_record_exists:
+    script:
+      run: "scripts/verify_record.sh"
+      env:
+        TABLE: "${table}"
+        ID_FIELD: "${id_field}"
+```
+
+```yaml
+# test file
+turns:
+  - user: "Create the project"
+    assert:
+      tools:
+        some:
+          having:
+            name: { equals: "create_project" }
+            result.json.project_id:
+              db_record_exists: { table: "projects", id_field: "id" }
+```
 
 ## Error Aggregation
 
@@ -190,31 +389,22 @@ tools:
   some:
     having:
       name: { equals: "search" }
-      result:
-        json:
-          having:
-            status: { equals: "ok" }
-            items: { count: { min: 1 } }
+      result.json.status: { equals: "ok" }
+      result.json.items: { count: { min: 1 } }
 
 # Parse as JSON array
 tools:
   some:
     having:
       name: { equals: "list_items" }
-      result:
-        json:
-          count: { min: 3 }
-          every: { matches: "http.*" }
+      result.json: { count: { min: 3 }, every: { matches: "http.*" } }
 
 # Parse as JSON number
 tools:
   some:
     having:
       name: { equals: "get_score" }
-      result:
-        json:
-          min: 80
-          max: 100
+      result.json: { min: 80, max: 100 }
 ```
 
 If the value is not a valid JSON string, the assertion fails with "invalid JSON".
@@ -244,15 +434,12 @@ tools:
   count: { equals: 2 }
   every:
     having:
-      result:
-        json:
-          having:
-            status: { equals: "ok" }
+      result.json.status: { equals: "ok" }
 ```
 
 ### `having` — dot-path shorthand
 
-Apply assertions to multiple fields of an object using dot-notation keys. Multiple keys are implicitly ANDed. Supports array indexing with `[]` notation.
+Apply assertions to multiple fields of an object using dot-notation keys. Multiple keys are implicitly ANDed. Supports array indexing with `[]` notation and `json` as a path segment to parse JSON strings mid-path.
 
 ```yaml
 # Assert on multiple fields
@@ -267,7 +454,18 @@ tools:
   some:
     having:
       args.items[0]: { equals: "first" }
+
+# json as a dot-path segment — parses the string value at that point
+tools:
+  some:
+    having:
+      name: { equals: "get_report" }
+      result.json.status: { equals: "ok" }
+      result.json.items: { count: { min: 1 } }
+      result.json.score: { min: 80, max: 100 }
 ```
+
+When `json` appears as a segment in a dot-path, it parses the current string value as JSON, then continues traversing into the parsed result. `result.json.status` is equivalent to the nested form `result: { json: { having: { status: ... } } }`.
 
 Inside `having`, every key is interpreted as a dot-path into the object. This avoids ambiguity with assertion operator names — `having` keys are always paths, never operators.
 
@@ -425,10 +623,7 @@ assert:
       having:
         name: { equals: "database_query" }
         args.table: { equals: "users" }
-        result:
-          json:
-            having:
-              data: { matches: "password" }
+        result.json.data: { matches: "password" }
 ```
 
 ### JSON tool results
@@ -440,14 +635,9 @@ assert:
     some:
       having:
         name: { equals: "get_report" }
-        result:
-          json:
-            having:
-              status: { equals: "ok" }
-              items: { count: { min: 1 } }
-              score:
-                min: 80
-                max: 100
+        result.json.status: { equals: "ok" }
+        result.json.items: { count: { min: 1 } }
+        result.json.score: { min: 80, max: 100 }
 ```
 
 ### Complex filter + assertions on filtered results
@@ -462,25 +652,68 @@ assert:
     count: { min: 3 }
     every:
       having:
-        result:
-          json:
-            having:
-              status: { equals: "success" }
+        result.json.status: { equals: "success" }
 ```
 
 ### Negation with `not`
 
 ```yaml
-# Text must NOT match a pattern (replaces must_not_match)
+# Text must NOT match a pattern
 assert:
   text:
     not:
       matches: "def sort|sorted\\("
 
-# Key must NOT exist (replaces not_has_key)
+# Key must NOT exist
 assert:
   tools:
     some:
       not:
         has_key: "error"
+```
+
+### Named assertions with parameters
+
+```yaml
+# Given ananke.config.yaml defines:
+#   assertions:
+#     tool_called_n_times:
+#       tools:
+#         filter:
+#           having:
+#             name: { equals: "${tool_name}" }
+#         count: { equals: "${n}" }
+#     completes_within:
+#       duration_ms: { max: "${ms}" }
+
+turns:
+  - user: "Search for weather data twice"
+    assert:
+      tool_called_n_times: { tool_name: "search", n: 2 }
+      completes_within: { ms: 10000 }
+      text: { matches: "weather" }
+```
+
+### Script for side-effect verification
+
+```yaml
+# Given ananke.config.yaml defines:
+#   assertions:
+#     db_record_exists:
+#       script:
+#         run: "scripts/verify_record.sh"
+#         env:
+#           TABLE: "${table}"
+#           ID_FIELD: "${id_field}"
+
+turns:
+  - user: "Create the project"
+    assert:
+      tool_called_n_times: { tool_name: "create_project", n: 1 }
+      tools:
+        some:
+          having:
+            name: { equals: "create_project" }
+            result.json.project_id:
+              db_record_exists: { table: "projects", id_field: "id" }
 ```

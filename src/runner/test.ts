@@ -19,7 +19,9 @@ import { mergeAssertBlocks } from "./merge.js";
 import {
   evaluateTurnAssertions,
   evaluateTestAssertions,
+  validateNamedAssertions,
   type AssertionResult,
+  type NamedAssertions,
 } from "../assertions/index.js";
 import {
   getTestRecordingDir,
@@ -59,6 +61,12 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
   const startTs = Date.now();
   const turns: TurnData[] = [];
   const failures: string[] = [];
+
+  // Validate and prepare named assertions from config
+  const namedAssertions: NamedAssertions = config.assertions ?? {};
+  if (Object.keys(namedAssertions).length > 0) {
+    validateNamedAssertions(namedAssertions);
+  }
 
   // Get recording directory for this test (use relative path)
   const relativeTestPath = relative(process.cwd(), testFilePath);
@@ -188,7 +196,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
       const hasAssertions = Object.keys(turnAssertions).length > 0;
 
       if (hasAssertions) {
-        const evalResult = evaluateTurnAssertions(turnData, turnAssertions);
+        const evalResult = evaluateTurnAssertions(turnData, turnAssertions, namedAssertions);
         if (!evalResult.passed) {
           for (const failure of evalResult.results) {
             const msg = formatFailure(failure, i + 1);
@@ -225,7 +233,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
   const hasTestAssertions = Object.keys(testAssertions).length > 0;
 
   if (hasTestAssertions) {
-    const evalResult = evaluateTestAssertions(testData, testAssertions);
+    const evalResult = evaluateTestAssertions(testData, testAssertions, namedAssertions);
     if (!evalResult.passed) {
       for (const failure of evalResult.results) {
         const msg = formatFailure(failure);

@@ -3,6 +3,10 @@ import type { AssertBlock } from "../types/test.js";
 import type { AssertionResult } from "./types.js";
 import { evaluate, type AssertionNode } from "./evaluator.js";
 import { extractSelector, SELECTOR_KEYS, type SelectorData } from "./selectors.js";
+import {
+  resolveAssertBlock,
+  type NamedAssertions,
+} from "./resolver.js";
 
 export interface EvaluationResult {
   passed: boolean;
@@ -85,6 +89,35 @@ function evaluateAssertBlock(
     }
   }
 
+  // Handle top-level script (operates on the full selector data as context)
+  if (assertions.script !== undefined) {
+    results.push(
+      ...evaluate(
+        JSON.stringify({
+          text: selectorData.assistantText,
+          tool_names: selectorData.toolCalls.map((c) => c.name),
+          duration_ms: selectorData.endTs - selectorData.startTs,
+        }),
+        { script: assertions.script } as AssertionNode,
+        { path: ["script"] }
+      )
+    );
+  }
+
+  // Flag unknown keys (should not remain after resolution)
+  const knownBlockKeys = new Set([...SELECTOR_KEYS, "or", "and", "not", "script"]);
+  for (const key of Object.keys(assertions)) {
+    if (!knownBlockKeys.has(key)) {
+      results.push({
+        passed: false,
+        assertion: `Unknown assertion "${key}"`,
+        path: [key],
+        expected: "a valid selector, operator, or named assertion",
+        actual: `unrecognized key "${key}"`,
+      });
+    }
+  }
+
   return results;
 }
 
@@ -93,8 +126,13 @@ function evaluateAssertBlock(
  */
 export function evaluateTurnAssertions(
   turnData: TurnData,
-  assertions: AssertBlock
+  assertions: AssertBlock,
+  namedAssertions?: NamedAssertions
 ): EvaluationResult {
+  const resolved = namedAssertions
+    ? resolveAssertBlock(assertions, namedAssertions)
+    : assertions;
+
   const selectorData: SelectorData = {
     assistantText: turnData.assistantText,
     toolCalls: turnData.toolCalls,
@@ -102,7 +140,7 @@ export function evaluateTurnAssertions(
     endTs: turnData.endTs,
   };
 
-  const allResults = evaluateAssertBlock(selectorData, assertions);
+  const allResults = evaluateAssertBlock(selectorData, resolved);
   const failures = allResults.filter((r) => !r.passed);
   return {
     passed: failures.length === 0,
@@ -115,8 +153,13 @@ export function evaluateTurnAssertions(
  */
 export function evaluateTestAssertions(
   testData: TestData,
-  assertions: AssertBlock
+  assertions: AssertBlock,
+  namedAssertions?: NamedAssertions
 ): EvaluationResult {
+  const resolved = namedAssertions
+    ? resolveAssertBlock(assertions, namedAssertions)
+    : assertions;
+
   const selectorData: SelectorData = {
     assistantText: testData.allAssistantTexts.join("\n"),
     toolCalls: testData.allToolCalls,
@@ -124,7 +167,7 @@ export function evaluateTestAssertions(
     endTs: testData.endTs,
   };
 
-  const allResults = evaluateAssertBlock(selectorData, assertions);
+  const allResults = evaluateAssertBlock(selectorData, resolved);
   const failures = allResults.filter((r) => !r.passed);
   return {
     passed: failures.length === 0,

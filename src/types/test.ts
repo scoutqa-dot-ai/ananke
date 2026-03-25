@@ -36,7 +36,20 @@ export type AssertionNodeInput = {
   and?: AssertionNodeInput[];
   or?: AssertionNodeInput[];
   not?: AssertionNodeInput;
+  script?: string | { run: string; timeout_ms?: number; env?: Record<string, string> };
+  // Named assertions (arbitrary keys resolved at evaluation time)
+  [key: string]: unknown;
 };
+
+// Script operator: string (short form) or object (long form)
+const ScriptSchema = z.union([
+  z.string(),
+  z.object({
+    run: z.string(),
+    timeout_ms: z.number().optional(),
+    env: z.record(z.string()).optional(),
+  }).strict(),
+]);
 
 const AssertionNodeSchema: z.ZodType<AssertionNodeInput> = z.lazy(() =>
   z.object({
@@ -65,7 +78,9 @@ const AssertionNodeSchema: z.ZodType<AssertionNodeInput> = z.lazy(() =>
     and: z.array(AssertionNodeSchema).optional(),
     or: z.array(AssertionNodeSchema).optional(),
     not: AssertionNodeSchema.optional(),
-  }).strict()
+    // Script assertion
+    script: ScriptSchema.optional(),
+  }).passthrough()
 );
 
 // ---------------------------------------------------------------------------
@@ -81,6 +96,10 @@ export type AssertBlockInput = {
   or?: AssertBlockInput[];
   and?: AssertBlockInput[];
   not?: AssertBlockInput;
+  // Script assertion at top level (operates on full turn context)
+  script?: string | { run: string; timeout_ms?: number; env?: Record<string, string> };
+  // Named assertions (arbitrary keys resolved at evaluation time)
+  [key: string]: unknown;
 };
 
 const AssertBlockSchema: z.ZodType<AssertBlockInput> = z.lazy(() =>
@@ -93,10 +112,11 @@ const AssertBlockSchema: z.ZodType<AssertBlockInput> = z.lazy(() =>
     or: z.array(AssertBlockSchema).optional(),
     and: z.array(AssertBlockSchema).optional(),
     not: AssertBlockSchema.optional(),
-  }).strict()
+    script: ScriptSchema.optional(),
+  }).passthrough()
 );
 
-export { AssertBlockSchema };
+export { AssertBlockSchema, AssertionNodeSchema };
 
 // ---------------------------------------------------------------------------
 // Test file structure

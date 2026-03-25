@@ -111,6 +111,33 @@ describe("getNestedValue", () => {
     const result = getNestedValue({ items: ["a"] }, "items[5]");
     expect(result).toEqual({ found: false });
   });
+
+  it("parses json as a dot-path segment (string → parsed)", () => {
+    const obj = { result: '{"status":"ok","score":90}' };
+    const statusResult = getNestedValue(obj, "result.json.status");
+    expect(statusResult).toEqual({ found: true, value: "ok" });
+
+    const scoreResult = getNestedValue(obj, "result.json.score");
+    expect(scoreResult).toEqual({ found: true, value: 90 });
+  });
+
+  it("json segment passes through already-parsed values", () => {
+    const obj = { result: { status: "ok" } };
+    const result = getNestedValue(obj, "result.json.status");
+    expect(result).toEqual({ found: true, value: "ok" });
+  });
+
+  it("json segment returns not found on invalid JSON", () => {
+    const obj = { result: "not valid json" };
+    const result = getNestedValue(obj, "result.json.status");
+    expect(result).toEqual({ found: false });
+  });
+
+  it("json segment at end of path returns parsed value", () => {
+    const obj = { result: '{"status":"ok"}' };
+    const result = getNestedValue(obj, "result.json");
+    expect(result).toEqual({ found: true, value: { status: "ok" } });
+  });
 });
 
 describe("typeOf", () => {
