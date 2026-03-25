@@ -4,73 +4,12 @@ import { AssertBlockSchema } from "./test.js";
 // Re-export AssertBlockSchema as ConfigAssertBlockSchema for config usage
 export const ConfigAssertBlockSchema = AssertBlockSchema;
 
-// ---------------------------------------------------------------------------
-// Template-aware assertion schemas for named assertion definitions.
-// Leaf values also accept strings to allow ${param} placeholders.
-// Structure (keys and nesting) is fully validated; values are relaxed.
-// ---------------------------------------------------------------------------
-
-const templateString = z.string();
-const templateNumber = z.union([z.number(), templateString]);
-const templatePrimitive = z.union([z.string(), z.number(), z.boolean(), z.null()]);
-
-const TemplateScriptSchema = z.union([
-  z.string(),
-  z.object({
-    run: z.string(),
-    timeout_ms: templateNumber.optional(),
-    env: z.record(z.string()).optional(),
-  }).strict(),
-]);
-
-const TemplateAssertionNodeSchema: z.ZodType<Record<string, unknown>> = z.lazy(() =>
-  z.object({
-    // String / Array assertions
-    equals: templatePrimitive.optional(),
-    contains: templatePrimitive.optional(),
-    starts_with: templateString.optional(),
-    ends_with: templateString.optional(),
-    matches: z.union([templateString, z.array(templateString)]).optional(),
-    // Number assertions — accept string for ${param}
-    min: templateNumber.optional(),
-    max: templateNumber.optional(),
-    // Array assertions
-    count: TemplateAssertionNodeSchema.optional(),
-    every: TemplateAssertionNodeSchema.optional(),
-    some: TemplateAssertionNodeSchema.optional(),
-    none: TemplateAssertionNodeSchema.optional(),
-    ordered: z.array(TemplateAssertionNodeSchema).optional(),
-    filter: TemplateAssertionNodeSchema.optional(),
-    // Object assertions
-    has_key: templateString.optional(),
-    having: z.record(TemplateAssertionNodeSchema).optional(),
-    // Transform
-    json: TemplateAssertionNodeSchema.optional(),
-    // Meta
-    and: z.array(TemplateAssertionNodeSchema).optional(),
-    or: z.array(TemplateAssertionNodeSchema).optional(),
-    not: TemplateAssertionNodeSchema.optional(),
-    // Script
-    script: TemplateScriptSchema.optional(),
-  }).passthrough()
-);
-
-const TemplateAssertBlockSchema: z.ZodType<Record<string, unknown>> = z.lazy(() =>
-  z.object({
-    text: TemplateAssertionNodeSchema.optional(),
-    tool_names: TemplateAssertionNodeSchema.optional(),
-    tools: TemplateAssertionNodeSchema.optional(),
-    duration_ms: TemplateAssertionNodeSchema.optional(),
-    idle_ms: TemplateAssertionNodeSchema.optional(),
-    or: z.array(TemplateAssertBlockSchema).optional(),
-    and: z.array(TemplateAssertBlockSchema).optional(),
-    not: TemplateAssertBlockSchema.optional(),
-    script: TemplateScriptSchema.optional(),
-  }).passthrough()
-);
-
-// Named assertions: Record<name, template-aware assert block>
-export const NamedAssertionsSchema = z.record(z.string(), TemplateAssertBlockSchema);
+// Named assertions: Record<name, assert block definition>.
+// Definitions may contain ${param} placeholders in any position, so we
+// validate structure only at resolution/evaluation time — not at load time.
+// This avoids maintaining a duplicate "template-aware" schema that drifts
+// from AssertBlockSchema whenever operators are added or changed.
+export const NamedAssertionsSchema = z.record(z.string(), z.unknown());
 
 // Common fields shared across all target types
 const CommonTargetFields = {

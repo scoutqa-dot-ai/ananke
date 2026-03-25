@@ -89,15 +89,11 @@ function evaluateAssertBlock(
     }
   }
 
-  // Handle top-level script (operates on the full selector data as context)
+  // Handle top-level script (passes raw selector data — scripts compute what they need)
   if (assertions.script !== undefined) {
     results.push(
       ...evaluate(
-        JSON.stringify({
-          text: selectorData.assistantText,
-          tool_names: selectorData.toolCalls.map((c) => c.name),
-          duration_ms: selectorData.endTs - selectorData.startTs,
-        }),
+        JSON.stringify(selectorData),
         { script: assertions.script } as AssertionNode,
         { path: ["script"] }
       )

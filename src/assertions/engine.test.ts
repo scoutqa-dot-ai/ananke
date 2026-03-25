@@ -212,7 +212,7 @@ describe("named assertions integration", () => {
       endTs: 5000,
     });
     const named = {
-      fast_response: { duration_ms: { max: 15000 } },
+      fast_response: { response: { having: { durationMs: { max: 15000 } } } },
     };
     const result = evaluateTurnAssertions(
       turnData,
@@ -273,7 +273,7 @@ describe("named assertions integration", () => {
       endTs: 3000,
     });
     const named = {
-      fast_response: { duration_ms: { max: 15000 } },
+      fast_response: { response: { having: { durationMs: { max: 15000 } } } },
     };
     const result = evaluateTurnAssertions(
       turnData,

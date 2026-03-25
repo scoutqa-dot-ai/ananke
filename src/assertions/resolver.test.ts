@@ -4,45 +4,6 @@ import {
   resolveAssertionNode,
   validateNamedAssertions,
 } from "./resolver.js";
-import { NamedAssertionsSchema } from "../types/config.js";
-
-describe("NamedAssertionsSchema", () => {
-  it("accepts valid named assertions", () => {
-    const result = NamedAssertionsSchema.safeParse({
-      fast_response: { duration_ms: { max: 15000 } },
-      calls_agent: { tool_names: { some: { equals: "agent" } } },
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it("accepts ${param} placeholders in number positions", () => {
-    const result = NamedAssertionsSchema.safeParse({
-      completes_within: { duration_ms: { max: "${ms}" } },
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it("accepts parameterized named assertions with nested templates", () => {
-    const result = NamedAssertionsSchema.safeParse({
-      tool_called_n_times: {
-        tools: {
-          filter: { having: { name: { equals: "${tool_name}" } } },
-          count: { equals: "${n}" },
-        },
-      },
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it("accepts script assertions in definitions", () => {
-    const result = NamedAssertionsSchema.safeParse({
-      db_exists: {
-        script: { run: "scripts/check.sh", env: { TABLE: "${table}" } },
-      },
-    });
-    expect(result.success).toBe(true);
-  });
-});
 
 describe("validateNamedAssertions", () => {
   it("passes for valid names", () => {
