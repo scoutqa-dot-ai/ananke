@@ -220,7 +220,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
         passed: false,
         testData: buildTestData(turns, startTs),
         error: `Turn ${i + 1} failed: ${(err as Error).message}`,
-        failures: [`Turn ${i + 1} failed: ${(err as Error).message}`],
+        failures: [],
       };
     }
   }
