@@ -3,6 +3,8 @@ import { interpolate, type Variables } from '../config/interpolate.js';
 import {
   executeScript,
   buildAnankeInput,
+  mergeVariables,
+  DEFAULT_HOOK_TIMEOUT_MS,
   type ScriptOutput,
 } from '../runner/script.js';
 import type { Logger } from '../logger.js';
@@ -41,7 +43,7 @@ export async function executeHook(hook: Hook, options: ExecuteHookOptions = {}):
   const config = {
     run: cmd,
     args,
-    timeout_ms: hook.timeout_ms ?? 30_000,
+    timeout_ms: hook.timeout_ms ?? DEFAULT_HOOK_TIMEOUT_MS,
   };
 
   const ananke = buildAnankeInput({ variables: currentVars });
@@ -77,8 +79,8 @@ export async function executeHooks(hooks: Hook[], options: ExecuteHooksOptions =
   const variables: Variables = {};
   const { logger } = options;
 
-  for (const hook of hooks) {
-    const result = await executeHook(hook, { currentVars: variables, logger });
+  for (let i = 0; i < hooks.length; i++) {
+    const result = await executeHook(hooks[i], { currentVars: variables, logger });
 
     if (result.action === 'skip_test') {
       logger?.debug('[Hook] skip_test — stopping test');
@@ -86,11 +88,11 @@ export async function executeHooks(hooks: Hook[], options: ExecuteHooksOptions =
     }
 
     if (result.action === 'skip_hook') {
-      logger?.debug('[Hook] skip_hook — skipping this hook');
+      logger?.debug(`[Hook] hook ${i + 1} skipped`);
       continue;
     }
 
-    Object.assign(variables, result.variables);
+    mergeVariables(variables, result.variables, `hook ${i + 1}`, logger);
   }
 
   return { variables, skipped: false };

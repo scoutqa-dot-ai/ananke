@@ -19,6 +19,7 @@ import {
   executeScript,
   normalizeScriptConfig,
   buildAnankeInput,
+  mergeVariables,
 } from "./script.js";
 import { mergeAssertBlocks } from "./merge.js";
 import { formatDuration } from "./format.js";
@@ -97,7 +98,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
       for (let i = 0; i < test.hooks.length; i++) {
         const hookVars = await loadHookOutput(replayDir, relativeTestPath, i);
         if (hookVars) {
-          Object.assign(variables, hookVars);
+          mergeVariables(variables, hookVars, `hook ${i + 1} (replay)`, logger);
         }
       }
       const varKeys = Object.keys(variables);
@@ -128,7 +129,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
             continue;
           }
 
-          Object.assign(variables, result.variables);
+          mergeVariables(variables, result.variables, `hook ${i + 1}`, logger);
 
           // Record hook output if recording
           if (testRecordingDir) {
@@ -444,20 +445,3 @@ function formatFailure(failure: AssertionResult, turnIndex?: number): string {
   return msg;
 }
 
-/**
- * Merge script output variables into the shared variable map with debug logging.
- */
-function mergeVariables(
-  target: Variables,
-  source: Variables,
-  location: string,
-  logger: Logger
-): void {
-  for (const [key, val] of Object.entries(source)) {
-    const old = target[key];
-    if (old !== undefined && old !== val) {
-      logger.debug(`Variable "${key}" overridden by ${location} (was: "${old}", now: "${val}")`);
-    }
-    target[key] = val;
-  }
-}

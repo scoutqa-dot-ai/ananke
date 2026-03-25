@@ -55,6 +55,25 @@ const VALID_ACTIONS_BY_LOCATION: Record<ScriptLocation, Set<ScriptAction>> = {
 };
 
 export const DEFAULT_TIMEOUT_MS = 10_000;
+export const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
+
+/**
+ * Merge script output variables into a target variable map with override logging.
+ */
+export function mergeVariables(
+  target: Variables,
+  source: Variables,
+  location: string,
+  logger?: Logger,
+): void {
+  for (const [key, val] of Object.entries(source)) {
+    const old = target[key];
+    if (old !== undefined && old !== val) {
+      logger?.debug(`Variable "${key}" overridden by ${location} (was: "${old}", now: "${val}")`);
+    }
+    target[key] = val;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Public API

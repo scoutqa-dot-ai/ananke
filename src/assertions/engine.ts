@@ -13,6 +13,7 @@ import {
   normalizeScriptConfig,
   buildAnankeInput,
   executeScript,
+  mergeVariables,
 } from "../runner/script.js";
 
 export interface EvaluationOptions {
@@ -78,13 +79,7 @@ function createScriptRunner(
 
     // Merge variables
     if (Object.keys(output.variables).length > 0 && options?.variables) {
-      for (const [key, val] of Object.entries(output.variables)) {
-        const old = options.variables[key];
-        if (old !== undefined && old !== val) {
-          ctx.logger?.debug(`[Script] Variable "${key}" overridden by assertion (was: "${old}", now: "${val}")`);
-        }
-        options.variables[key] = val;
-      }
+      mergeVariables(options.variables, output.variables, "assertion", ctx.logger);
     }
 
     ctx.logger?.debug(`[assert] ${ctx.path.join(" → ")}: PASSED`);
