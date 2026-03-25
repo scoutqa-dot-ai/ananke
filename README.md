@@ -77,11 +77,17 @@ Arguments:
 
 Options:
   -c, --config <path>  Path to config file
-  -v, --verbose        Verbose output
   -d, --dry-run        Validate tests without executing
   --json               Output results as JSON
   -h, --help           display help for command
 ```
+
+## Environment Variables
+
+| Variable               | Description                                   | Default |
+| ---------------------- | --------------------------------------------- | ------- |
+| `ANANKE_LOG_LEVEL`     | Log level: `silent`, `info`, `debug`, `trace` | `info`  |
+| `ANANKE_LOG_TIMESTAMP` | Show timestamps in log output: `1` to enable  | _(off)_ |
 
 ## Configuration
 
@@ -108,6 +114,7 @@ target:
 ```
 
 Variables:
+
 - `${ENV.NAME}` - Environment variable
 - `${VAR}` - Variable from hooks
 
@@ -118,13 +125,13 @@ version: "1.0"
 
 name: test name
 
-hooks:  # Optional setup scripts
+hooks: # Optional setup scripts
   - cmd: ["bash", "scripts/setup.sh"]
     timeout_ms: 10000
 
 turns:
   - user: "User message"
-    assert:  # Turn-level assertions (inherits from target and test)
+    assert: # Turn-level assertions (inherits from target and test)
       tool_names:
         some: { equals: "tool_name" }
         none: { equals: "forbidden_tool" }
@@ -141,7 +148,7 @@ turns:
         not:
           matches: ["error", "failed"]
 
-assert:  # Test-level assertions (inherits from target)
+assert: # Test-level assertions (inherits from target)
   tool_names:
     none: { equals: "dangerous_tool" }
   response:
@@ -156,28 +163,28 @@ See [docs/assertions-v2.md](docs/assertions-v2.md) for the full assertion refere
 
 ### Selectors
 
-| Selector | Type | Description |
-|----------|------|-------------|
-| `text` | string | Assistant response text |
-| `tool_names` | array | Tool call names |
-| `tools` | array | Full tool call objects |
-| `response` | object | Response metrics (use `having` to assert on fields) |
+| Selector     | Type   | Description                                         |
+| ------------ | ------ | --------------------------------------------------- |
+| `text`       | string | Assistant response text                             |
+| `tool_names` | array  | Tool call names                                     |
+| `tools`      | array  | Full tool call objects                              |
+| `response`   | object | Response metrics (use `having` to assert on fields) |
 
 ### Common Operators
 
-| Operator | Description |
-|----------|-------------|
-| `equals` | Exact match (string, number, boolean, null) |
-| `contains` | Substring (string) or element membership (array) |
-| `matches` | Regex pattern(s) that must all match |
-| `min`, `max` | Number comparisons |
-| `count` | Number assertion on array length |
-| `some`, `every`, `none` | Element-level array assertions |
-| `ordered` | Elements appear in order |
-| `filter` | Keep matching elements, assert on sub-array |
-| `having` | Dot-path shorthand for object field assertions |
-| `json` | Parse JSON string (or pass through pre-parsed values) |
-| `and`, `or`, `not` | Logical combinators |
+| Operator                | Description                                           |
+| ----------------------- | ----------------------------------------------------- |
+| `equals`                | Exact match (string, number, boolean, null)           |
+| `contains`              | Substring (string) or element membership (array)      |
+| `matches`               | Regex pattern(s) that must all match                  |
+| `min`, `max`            | Number comparisons                                    |
+| `count`                 | Number assertion on array length                      |
+| `some`, `every`, `none` | Element-level array assertions                        |
+| `ordered`               | Elements appear in order                              |
+| `filter`                | Keep matching elements, assert on sub-array           |
+| `having`                | Dot-path shorthand for object field assertions        |
+| `json`                  | Parse JSON string (or pass through pre-parsed values) |
+| `and`, `or`, `not`      | Logical combinators                                   |
 
 ## Hooks
 
