@@ -15,14 +15,14 @@ export interface AssertionResult {
 }
 
 /**
- * Synchronous script runner callback for the evaluator.
- * Provided by the engine to bridge async script execution.
+ * Async script runner callback for the evaluator.
+ * Provided by the engine using the shared executeScript.
  */
 export type ScriptRunnerFn = (
   value: unknown,
   operand: unknown,
   ctx: EvalContext
-) => AssertionResult;
+) => Promise<AssertionResult>;
 
 export interface EvalContext {
   path: string[];

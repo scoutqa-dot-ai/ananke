@@ -54,7 +54,7 @@ const VALID_ACTIONS_BY_LOCATION: Record<ScriptLocation, Set<ScriptAction>> = {
   assertion: new Set(["skip_assertion", "skip_test"]),
 };
 
-const DEFAULT_TIMEOUT_MS = 10_000;
+export const DEFAULT_TIMEOUT_MS = 10_000;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -138,14 +138,29 @@ export async function executeScript(
     const stderr = (typeof result.stderr === "string" ? result.stderr : "").trim();
     const stdout = (typeof result.stdout === "string" ? result.stdout : "").trim();
 
-    logger?.debug(`[Script] Exit code: ${exitCode}`);
+    logger?.debug(`[Script] Exit code: ${exitCode}, timedOut: ${result.timedOut}`);
+    if (stdout) {
+      logger?.debug(`[Script] Stdout: ${stdout.slice(0, 500)}${stdout.length > 500 ? "..." : ""}`);
+    }
     if (stderr) {
-      logger?.trace(`[Script] Stderr: ${stderr.slice(0, 200)}${stderr.length > 200 ? "..." : ""}`);
+      logger?.debug(`[Script] Stderr: ${stderr.slice(0, 500)}${stderr.length > 500 ? "..." : ""}`);
+    }
+
+    // Timeout
+    if (result.timedOut) {
+      return {
+        output: { variables: {} },
+        exitCode,
+        stderr: `script timed out after ${timeout}ms: ${config.run}`,
+      };
     }
 
     // Non-zero exit = failure
     if (exitCode !== 0) {
-      const reason = stderr || `script exited with code ${exitCode}`;
+      const parts: string[] = [];
+      if (stderr) parts.push(stderr);
+      if (stdout) parts.push(`stdout: ${stdout}`);
+      const reason = parts.length > 0 ? parts.join("\n") : `script exited with code ${exitCode}`;
       return {
         output: { variables: {} },
         exitCode,
@@ -154,15 +169,20 @@ export async function executeScript(
     }
 
     // Parse stdout as JSON
-    const output = parseScriptOutput(stdout, location, logger);
-
-    return { output, exitCode: 0, stderr };
+    try {
+      const output = parseScriptOutput(stdout, location, logger);
+      return { output, exitCode: 0, stderr };
+    } catch (parseErr: unknown) {
+      // Parse/validation errors are returned as failures, not thrown
+      const reason = parseErr instanceof Error ? parseErr.message : "failed to parse script output";
+      return {
+        output: { variables: {} },
+        exitCode: 1,
+        stderr: reason,
+      };
+    }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "script execution failed";
-    // Check for timeout
-    if (message.includes("timed out")) {
-      throw new Error(`Script timed out after ${timeout}ms: ${config.run}`);
-    }
     throw new Error(`Script failed: ${config.run}: ${message}`);
   }
 }

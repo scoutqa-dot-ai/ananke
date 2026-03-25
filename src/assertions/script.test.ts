@@ -104,7 +104,7 @@ describe("assertion script — unified contract", () => {
       text: { script: "echo 'not json'" },
     } as any);
     expect(result.passed).toBe(false);
-    expect(result.failures[0].actual).toContain("invalid JSON");
+    expect(result.failures[0].actual).toContain("not valid JSON");
   });
 
   it("fails with stderr message on non-zero exit", async () => {

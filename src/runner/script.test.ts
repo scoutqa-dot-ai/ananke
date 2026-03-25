@@ -156,16 +156,20 @@ describe("executeScript", () => {
       expect(result.output.variables).toEqual({ NUM: "42", BOOL: "true" });
     });
 
-    it("throws on non-JSON stdout with exit 0", async () => {
+    it("returns failure on non-JSON stdout with exit 0", async () => {
       const config: ScriptConfig = { run: "echo 'not json'" };
       const ananke = buildAnankeInput({});
-      await expect(executeScript(config, ananke, "hook")).rejects.toThrow("not valid JSON");
+      const result = await executeScript(config, ananke, "hook");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("not valid JSON");
     });
 
-    it("throws on array stdout", async () => {
+    it("returns failure on array stdout", async () => {
       const config: ScriptConfig = { run: `echo '[1,2,3]'` };
       const ananke = buildAnankeInput({});
-      await expect(executeScript(config, ananke, "hook")).rejects.toThrow("must be a JSON object");
+      const result = await executeScript(config, ananke, "hook");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("must be a JSON object");
     });
 
     it("handles empty stdout as empty output", async () => {
@@ -208,37 +212,39 @@ describe("executeScript", () => {
       }
     });
 
-    it("rejects skip_turn in hook location", async () => {
+    it("returns failure for skip_turn in hook location", async () => {
       const config: ScriptConfig = { run: `echo '{"action": "skip_turn"}'` };
       const ananke = buildAnankeInput({});
-      await expect(executeScript(config, ananke, "hook")).rejects.toThrow(
-        'Invalid action "skip_turn" for hook'
-      );
+      const result = await executeScript(config, ananke, "hook");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('Invalid action "skip_turn" for hook');
     });
 
-    it("rejects skip_hook in turn location", async () => {
+    it("returns failure for skip_hook in turn location", async () => {
       const config: ScriptConfig = { run: `echo '{"action": "skip_hook"}'` };
       const ananke = buildAnankeInput({});
-      await expect(executeScript(config, ananke, "turn")).rejects.toThrow(
-        'Invalid action "skip_hook" for turn'
-      );
+      const result = await executeScript(config, ananke, "turn");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('Invalid action "skip_hook" for turn');
     });
 
-    it("rejects skip_assertion in hook location", async () => {
+    it("returns failure for skip_assertion in hook location", async () => {
       const config: ScriptConfig = { run: `echo '{"action": "skip_assertion"}'` };
       const ananke = buildAnankeInput({});
-      await expect(executeScript(config, ananke, "hook")).rejects.toThrow(
-        'Invalid action "skip_assertion" for hook'
-      );
+      const result = await executeScript(config, ananke, "hook");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('Invalid action "skip_assertion" for hook');
     });
   });
 
   describe("timeout", () => {
-    it("returns non-zero exit on timeout", async () => {
+    it("returns non-zero exit with clear message on timeout", async () => {
       const config: ScriptConfig = { run: "sleep 10", timeout_ms: 100 };
       const ananke = buildAnankeInput({});
       const result = await executeScript(config, ananke, "hook");
       expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain("timed out after 100ms");
+      expect(result.stderr).toContain("sleep 10");
     }, 5000);
   });
 

@@ -71,11 +71,11 @@ function child(ctx: EvalContext, ...segments: string[]): EvalContext {
  * Evaluate an assertion node against a value.
  * Returns all failures (implicit AND across sibling keys).
  */
-export function evaluate(
+export async function evaluate(
   value: unknown,
   node: AssertionNode,
   ctx: EvalContext
-): AssertionResult[] {
+): Promise<AssertionResult[]> {
   const results: AssertionResult[] = [];
   const keys = Object.keys(node);
 
@@ -84,14 +84,18 @@ export function evaluate(
   let effectiveValue = value;
   if ("filter" in node && Array.isArray(value)) {
     const filterNode = node.filter as AssertionNode;
-    effectiveValue = (value as unknown[]).filter((element) => {
-      const filterResults = evaluate(
+    const filtered: unknown[] = [];
+    for (const element of value as unknown[]) {
+      const filterResults = await evaluate(
         element,
         filterNode,
         child(ctx, "filter")
       );
-      return filterResults.every((r) => r.passed);
-    });
+      if (filterResults.every((r) => r.passed)) {
+        filtered.push(element);
+      }
+    }
+    effectiveValue = filtered;
   }
 
   for (const key of keys) {
@@ -105,7 +109,7 @@ export function evaluate(
         results.push(evalEquals(effectiveValue, operand, childCtx));
         break;
       case "contains":
-        results.push(evalContains(effectiveValue, operand, childCtx));
+        results.push(await evalContains(effectiveValue, operand, childCtx));
         break;
       case "starts_with":
         results.push(evalStartsWith(effectiveValue, operand as string, childCtx));
@@ -127,19 +131,19 @@ export function evaluate(
 
       // --- Array assertions ---
       case "count":
-        results.push(...evalCount(effectiveValue, operand as AssertionNode, childCtx));
+        results.push(...await evalCount(effectiveValue, operand as AssertionNode, childCtx));
         break;
       case "every":
-        results.push(...evalEvery(effectiveValue, operand as AssertionNode, childCtx));
+        results.push(...await evalEvery(effectiveValue, operand as AssertionNode, childCtx));
         break;
       case "some":
-        results.push(...evalSome(effectiveValue, operand as AssertionNode, childCtx));
+        results.push(...await evalSome(effectiveValue, operand as AssertionNode, childCtx));
         break;
       case "none":
-        results.push(...evalNone(effectiveValue, operand as AssertionNode, childCtx));
+        results.push(...await evalNone(effectiveValue, operand as AssertionNode, childCtx));
         break;
       case "ordered":
-        results.push(...evalOrdered(effectiveValue, operand as AssertionNode[], childCtx));
+        results.push(...await evalOrdered(effectiveValue, operand as AssertionNode[], childCtx));
         break;
       case "filter":
         // filter on non-array is a type mismatch
@@ -155,30 +159,30 @@ export function evaluate(
 
       // --- Transforms ---
       case "having":
-        results.push(...evalHaving(
+        results.push(...await evalHaving(
           effectiveValue,
           operand as Record<string, AssertionNode>,
           childCtx
         ));
         break;
       case "json":
-        results.push(...evalJson(effectiveValue, operand as AssertionNode, childCtx));
+        results.push(...await evalJson(effectiveValue, operand as AssertionNode, childCtx));
         break;
 
       // --- Meta ---
       case "and":
-        results.push(...evalAnd(effectiveValue, operand as AssertionNode[], childCtx));
+        results.push(...await evalAnd(effectiveValue, operand as AssertionNode[], childCtx));
         break;
       case "or":
-        results.push(...evalOr(effectiveValue, operand as AssertionNode[], childCtx));
+        results.push(...await evalOr(effectiveValue, operand as AssertionNode[], childCtx));
         break;
       case "not":
-        results.push(...evalNot(effectiveValue, operand as AssertionNode, childCtx));
+        results.push(...await evalNot(effectiveValue, operand as AssertionNode, childCtx));
         break;
 
       // --- Script ---
       case "script":
-        results.push(evalScript(effectiveValue, operand, childCtx));
+        results.push(await evalScript(effectiveValue, operand, childCtx));
         break;
 
       default:
@@ -208,14 +212,14 @@ function evalEquals(
   });
 }
 
-function evalContains(
+async function evalContains(
   value: unknown,
   expected: unknown,
   ctx: EvalContext
-): AssertionResult {
+): Promise<AssertionResult> {
   // Array: sugar for some: { equals: expected }
   if (Array.isArray(value)) {
-    const someResults = evalSome(value, { equals: expected }, ctx);
+    const someResults = await evalSome(value, { equals: expected }, ctx);
     if (someResults.length === 0) {
       return pass("contains", ctx);
     }
@@ -348,11 +352,11 @@ function evalMax(
 // Array assertions
 // ---------------------------------------------------------------------------
 
-function evalCount(
+async function evalCount(
   value: unknown,
   node: AssertionNode,
   ctx: EvalContext
-): AssertionResult[] {
+): Promise<AssertionResult[]> {
   if (!Array.isArray(value)) {
     return [typeMismatch("count", "array", value, ctx)];
   }
@@ -360,18 +364,18 @@ function evalCount(
   return evaluate(value.length, node, ctx);
 }
 
-function evalEvery(
+async function evalEvery(
   value: unknown,
   node: AssertionNode,
   ctx: EvalContext
-): AssertionResult[] {
+): Promise<AssertionResult[]> {
   if (!Array.isArray(value)) {
     return [typeMismatch("every", "array", value, ctx)];
   }
   // Vacuous truth: empty array passes
   const results: AssertionResult[] = [];
   for (let i = 0; i < value.length; i++) {
-    const elementResults = evaluate(value[i], node, child(ctx, `[${i}]`));
+    const elementResults = await evaluate(value[i], node, child(ctx, `[${i}]`));
     const failures = elementResults.filter((r) => !r.passed);
     if (failures.length > 0) {
       results.push(...failures);
@@ -380,11 +384,11 @@ function evalEvery(
   return results;
 }
 
-function evalSome(
+async function evalSome(
   value: unknown,
   node: AssertionNode,
   ctx: EvalContext
-): AssertionResult[] {
+): Promise<AssertionResult[]> {
   if (!Array.isArray(value)) {
     return [typeMismatch("some", "array", value, ctx)];
   }
@@ -397,7 +401,7 @@ function evalSome(
     ];
   }
   for (const element of value) {
-    const elementResults = evaluate(element, node, ctx);
+    const elementResults = await evaluate(element, node, ctx);
     const failures = elementResults.filter((r) => !r.passed);
     if (failures.length === 0) {
       return []; // at least one element passed
@@ -411,17 +415,17 @@ function evalSome(
   ];
 }
 
-function evalNone(
+async function evalNone(
   value: unknown,
   node: AssertionNode,
   ctx: EvalContext
-): AssertionResult[] {
+): Promise<AssertionResult[]> {
   if (!Array.isArray(value)) {
     return [typeMismatch("none", "array", value, ctx)];
   }
   const results: AssertionResult[] = [];
   for (let i = 0; i < value.length; i++) {
-    const elementResults = evaluate(value[i], node, child(ctx, `[${i}]`));
+    const elementResults = await evaluate(value[i], node, child(ctx, `[${i}]`));
     const failures = elementResults.filter((r) => !r.passed);
     if (failures.length === 0) {
       // This element passed the assertion — which means it shouldn't have
@@ -436,11 +440,11 @@ function evalNone(
   return results;
 }
 
-function evalOrdered(
+async function evalOrdered(
   value: unknown,
   patterns: AssertionNode[],
   ctx: EvalContext
-): AssertionResult[] {
+): Promise<AssertionResult[]> {
   if (!Array.isArray(value)) {
     return [typeMismatch("ordered", "array", value, ctx)];
   }
@@ -450,7 +454,7 @@ function evalOrdered(
     const pattern = patterns[pi];
     let found = false;
     for (let i = searchFrom; i < value.length; i++) {
-      const elementResults = evaluate(value[i], pattern, ctx);
+      const elementResults = await evaluate(value[i], pattern, ctx);
       const failures = elementResults.filter((r) => !r.passed);
       if (failures.length === 0) {
         searchFrom = i + 1;
@@ -495,11 +499,11 @@ function evalHasKey(
 // Transforms
 // ---------------------------------------------------------------------------
 
-function evalHaving(
+async function evalHaving(
   value: unknown,
   fields: Record<string, AssertionNode>,
   ctx: EvalContext
-): AssertionResult[] {
+): Promise<AssertionResult[]> {
   if (typeof value !== "object" || value === null) {
     return [typeMismatch("having", "object", value, ctx)];
   }
@@ -515,18 +519,18 @@ function evalHaving(
       );
     } else {
       results.push(
-        ...evaluate(result.value, assertNode, child(ctx, dotPath))
+        ...await evaluate(result.value, assertNode, child(ctx, dotPath))
       );
     }
   }
   return results;
 }
 
-function evalJson(
+async function evalJson(
   value: unknown,
   node: AssertionNode,
   ctx: EvalContext
-): AssertionResult[] {
+): Promise<AssertionResult[]> {
   // If the value is already parsed (e.g., tool results are eagerly JSON.parse'd
   // during event collection), skip parsing and evaluate directly.
   if (typeof value !== "string") {
@@ -555,28 +559,28 @@ function evalJson(
 // Meta
 // ---------------------------------------------------------------------------
 
-function evalAnd(
+async function evalAnd(
   value: unknown,
   branches: AssertionNode[],
   ctx: EvalContext
-): AssertionResult[] {
+): Promise<AssertionResult[]> {
   // All branches must pass; report all failures
   const results: AssertionResult[] = [];
   for (const branch of branches) {
-    results.push(...evaluate(value, branch, ctx));
+    results.push(...await evaluate(value, branch, ctx));
   }
   return results;
 }
 
-function evalOr(
+async function evalOr(
   value: unknown,
   branches: AssertionNode[],
   ctx: EvalContext
-): AssertionResult[] {
+): Promise<AssertionResult[]> {
   // At least one branch must pass entirely
   const allBranchFailures: AssertionResult[][] = [];
   for (const branch of branches) {
-    const branchResults = evaluate(value, branch, ctx);
+    const branchResults = await evaluate(value, branch, ctx);
     const failures = branchResults.filter((r) => !r.passed);
     if (failures.length === 0) {
       return []; // this branch passed
@@ -598,12 +602,12 @@ function evalOr(
   ];
 }
 
-function evalNot(
+async function evalNot(
   value: unknown,
   node: AssertionNode,
   ctx: EvalContext
-): AssertionResult[] {
-  const innerResults = evaluate(value, node, ctx);
+): Promise<AssertionResult[]> {
+  const innerResults = await evaluate(value, node, ctx);
   const failures = innerResults.filter((r) => !r.passed);
   if (failures.length > 0) {
     // Inner assertion failed → `not` passes
@@ -622,11 +626,11 @@ function evalNot(
 // Script (delegates to shared executor via EvalContext.scriptRunner)
 // ---------------------------------------------------------------------------
 
-function evalScript(
+async function evalScript(
   value: unknown,
   operand: unknown,
   ctx: EvalContext
-): AssertionResult {
+): Promise<AssertionResult> {
   if (!ctx.scriptRunner) {
     return fail("script", ctx, {
       expected: "script runner configured",
@@ -634,9 +638,5 @@ function evalScript(
     });
   }
 
-  // scriptRunner is synchronous from the evaluator's perspective —
-  // the runner schedules async execution and caches the result.
-  // For now, we queue the script and return a pending marker that
-  // the engine resolves. See engine.ts for the async wrapper.
   return ctx.scriptRunner(value, operand, ctx);
 }

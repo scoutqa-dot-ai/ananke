@@ -12,6 +12,7 @@ import {
 import {
   normalizeScriptConfig,
   buildAnankeInput,
+  executeScript,
 } from "../runner/script.js";
 
 export interface EvaluationOptions {
@@ -34,15 +35,12 @@ export interface EvaluationResult {
 }
 
 /**
- * Create a synchronous script runner for assertion evaluation.
- *
- * Scripts run synchronously (via execSync) so that operator semantics
- * (or/not/some/filter) work correctly — no deferred placeholders.
+ * Create an async script runner that uses the shared executeScript.
  */
 function createScriptRunner(
   options: EvaluationOptions | undefined,
 ): ScriptRunnerFn {
-  return (value, operand, ctx) => {
+  return async (value, operand, ctx) => {
     const config = normalizeScriptConfig(operand);
     const ananke = buildAnankeInput({
       value,
@@ -50,97 +48,65 @@ function createScriptRunner(
       variables: options?.variables,
       turnIndex: options?.turnIndex,
     });
-    const anankeJson = JSON.stringify(ananke);
 
-    try {
-      const { execSync } = require("child_process");
-      const stdout = execSync(config.run, {
-        input: anankeJson,
-        timeout: config.timeout_ms ?? 10_000,
-        shell: true,
-        env: { ...process.env, ANANKE: anankeJson, ...config.env },
-        stdio: ["pipe", "pipe", "pipe"],
-      });
+    const result = await executeScript(config, ananke, "assertion", {
+      logger: options?.logger,
+    });
 
-      const stdoutStr = (stdout ? stdout.toString() : "").trim();
-
-      // Parse output
-      let output: { variables?: Record<string, unknown>; reason?: string; action?: string } = {};
-      if (stdoutStr) {
-        try {
-          const parsed = JSON.parse(stdoutStr);
-          if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-            output = parsed;
-          }
-        } catch {
-          // Non-JSON stdout on exit 0 is an error
-          return {
-            passed: false,
-            assertion: "script",
-            path: ctx.path,
-            expected: "valid JSON stdout",
-            actual: `invalid JSON: ${stdoutStr.slice(0, 100)}`,
-          };
-        }
-      }
-
-      // Handle actions
-      if (output.action === "skip_assertion") {
-        ctx.logger?.debug(`[assert] ${ctx.path.join(" → ")}: SKIPPED (skip_assertion)`);
-        return { passed: true, assertion: "script (skipped)", path: ctx.path, reason: output.reason as string };
-      }
-
-      if (output.action === "skip_test") {
-        return { passed: true, assertion: "script (skip_test)", path: ctx.path, details: "skip_test", reason: output.reason as string };
-      }
-
-      // Merge variables
-      if (output.variables && typeof output.variables === "object" && options?.variables) {
-        for (const [key, val] of Object.entries(output.variables)) {
-          const strVal = String(val);
-          const old = options.variables[key];
-          if (old !== undefined && old !== strVal) {
-            ctx.logger?.debug(`[Script] Variable "${key}" overridden by assertion (was: "${old}", now: "${strVal}")`);
-          }
-          options.variables[key] = strVal;
-        }
-      }
-
-      ctx.logger?.debug(`[assert] ${ctx.path.join(" → ")}: PASSED`);
-      return {
-        passed: true,
-        assertion: "script",
-        path: ctx.path,
-        reason: output.reason as string,
-        variables: output.variables ? Object.fromEntries(
-          Object.entries(output.variables).map(([k, v]) => [k, String(v)])
-        ) : undefined,
-      };
-    } catch (err: any) {
-      const stderr = err.stderr ? err.stderr.toString().trim() : "";
-      const reason = stderr || err.message || `exit code ${err.status}`;
-      ctx.logger?.debug(`[assert] ${ctx.path.join(" → ")}: FAILED — ${reason}`);
+    if (result.exitCode !== 0) {
+      ctx.logger?.debug(`[assert] ${ctx.path.join(" → ")}: FAILED — ${result.stderr}`);
       return {
         passed: false,
         assertion: "script",
         path: ctx.path,
         expected: "exit code 0",
-        actual: reason.slice(0, 200),
+        actual: result.stderr.slice(0, 200),
       };
     }
+
+    const { output } = result;
+
+    // Handle actions
+    if (output.action === "skip_assertion") {
+      ctx.logger?.debug(`[assert] ${ctx.path.join(" → ")}: SKIPPED (skip_assertion)`);
+      return { passed: true, assertion: "script (skipped)", path: ctx.path, reason: output.reason };
+    }
+
+    if (output.action === "skip_test") {
+      return { passed: true, assertion: "script (skip_test)", path: ctx.path, details: "skip_test", reason: output.reason };
+    }
+
+    // Merge variables
+    if (Object.keys(output.variables).length > 0 && options?.variables) {
+      for (const [key, val] of Object.entries(output.variables)) {
+        const old = options.variables[key];
+        if (old !== undefined && old !== val) {
+          ctx.logger?.debug(`[Script] Variable "${key}" overridden by assertion (was: "${old}", now: "${val}")`);
+        }
+        options.variables[key] = val;
+      }
+    }
+
+    ctx.logger?.debug(`[assert] ${ctx.path.join(" → ")}: PASSED`);
+    return {
+      passed: true,
+      assertion: "script",
+      path: ctx.path,
+      reason: output.reason,
+      variables: Object.keys(output.variables).length > 0 ? output.variables : undefined,
+    };
   };
 }
 
 /**
  * Evaluate an assert block against selector data.
  * Handles selector keys and top-level meta (and/or/not).
- * Async to support script assertions.
  */
-function evaluateAssertBlock(
+async function evaluateAssertBlock(
   selectorData: SelectorData,
   assertions: AssertBlock,
   ctx: EvalContext,
-): AssertionResult[] {
+): Promise<AssertionResult[]> {
   const results: AssertionResult[] = [];
 
   // Handle selector keys
@@ -149,7 +115,7 @@ function evaluateAssertBlock(
     if (node !== undefined) {
       const value = extractSelector(selectorName, selectorData);
       results.push(
-        ...evaluate(value, node as AssertionNode, { ...ctx, path: [selectorName] })
+        ...await evaluate(value, node as AssertionNode, { ...ctx, path: [selectorName] })
       );
     }
   }
@@ -161,7 +127,7 @@ function evaluateAssertBlock(
     let anyPassed = false;
 
     for (const branch of branches) {
-      const branchResults = evaluateAssertBlock(selectorData, branch, ctx);
+      const branchResults = await evaluateAssertBlock(selectorData, branch, ctx);
       const failures = branchResults.filter((r) => !r.passed);
       if (failures.length === 0) {
         anyPassed = true;
@@ -191,13 +157,13 @@ function evaluateAssertBlock(
   if (assertions.and) {
     const branches = assertions.and as AssertBlock[];
     for (const branch of branches) {
-      results.push(...evaluateAssertBlock(selectorData, branch, ctx));
+      results.push(...await evaluateAssertBlock(selectorData, branch, ctx));
     }
   }
 
   if (assertions.not) {
     const branch = assertions.not as AssertBlock;
-    const innerResults = evaluateAssertBlock(selectorData, branch, ctx);
+    const innerResults = await evaluateAssertBlock(selectorData, branch, ctx);
     const failures = innerResults.filter((r) => !r.passed);
     if (failures.length === 0) {
       results.push({
@@ -214,7 +180,7 @@ function evaluateAssertBlock(
   // Handle top-level script (passes raw selector data — scripts compute what they need)
   if (assertions.script !== undefined) {
     results.push(
-      ...evaluate(
+      ...await evaluate(
         JSON.stringify(selectorData),
         { script: assertions.script } as AssertionNode,
         { ...ctx, path: ["script"] }
@@ -241,9 +207,6 @@ function evaluateAssertBlock(
 }
 
 /**
- * Evaluate turn-level assertions
- */
-/**
  * Build a root EvalContext from evaluation options.
  */
 function buildEvalContext(options?: EvaluationOptions): EvalContext {
@@ -254,6 +217,9 @@ function buildEvalContext(options?: EvaluationOptions): EvalContext {
   };
 }
 
+/**
+ * Evaluate turn-level assertions
+ */
 export async function evaluateTurnAssertions(
   turnData: TurnData,
   assertions: AssertBlock,
@@ -271,7 +237,7 @@ export async function evaluateTurnAssertions(
   };
 
   const ctx = buildEvalContext(options);
-  const results = evaluateAssertBlock(selectorData, resolved, ctx);
+  const results = await evaluateAssertBlock(selectorData, resolved, ctx);
   const failures = results.filter((r) => !r.passed);
   return {
     passed: failures.length === 0,
@@ -300,7 +266,7 @@ export async function evaluateTestAssertions(
   };
 
   const ctx = buildEvalContext(options);
-  const results = evaluateAssertBlock(selectorData, resolved, ctx);
+  const results = await evaluateAssertBlock(selectorData, resolved, ctx);
   const failures = results.filter((r) => !r.passed);
   return {
     passed: failures.length === 0,
