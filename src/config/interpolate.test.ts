@@ -12,9 +12,17 @@ describe("interpolate", () => {
     expect(result).toBe("Hi User!");
   });
 
-  it("leaves unknown variables as empty string", () => {
-    const result = interpolate("Hello ${UNKNOWN}!", {});
-    expect(result).toBe("Hello !");
+  it("throws on unset variable", () => {
+    expect(() => interpolate("Hello ${UNKNOWN}!", {})).toThrow(
+      'Variable "UNKNOWN" is not defined'
+    );
+  });
+
+  it("throws on unset environment variable", () => {
+    delete process.env.DEFINITELY_NOT_SET;
+    expect(() => interpolate("${ENV.DEFINITELY_NOT_SET}", {})).toThrow(
+      'Environment variable "DEFINITELY_NOT_SET" is not set'
+    );
   });
 
   it("replaces ${ENV.VAR} with environment variable", () => {

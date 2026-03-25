@@ -6,9 +6,17 @@ export type Variables = Record<string, string>;
 export function interpolate(template: string, vars: Variables): string {
   return template.replace(/\$\{(ENV\.)?(\w+)\}/g, (match, isEnv, name) => {
     if (isEnv) {
-      return process.env[name] ?? '';
+      const value = process.env[name];
+      if (value === undefined) {
+        throw new Error(`Environment variable "${name}" is not set (referenced as \${ENV.${name}})`);
+      }
+      return value;
     }
-    return vars[name] ?? '';
+    const value = vars[name];
+    if (value === undefined) {
+      throw new Error(`Variable "${name}" is not defined (referenced as \${${name}}). Did you forget a hook that sets it?`);
+    }
+    return value;
   });
 }
 
