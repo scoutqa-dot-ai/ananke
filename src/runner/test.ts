@@ -152,7 +152,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
           if (verbose) log(`  Turn ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}" (replay)`);
         }
         const events = replayEvents(replayDir!, relativeTestPath, i);
-        turnData = await collectTurnData(events, i);
+        turnData = await collectTurnData(events, i, { onDebug: debug });
       } else if (isConnectTurn(turn)) {
         // Connect turn - no message, just observe
         if (verbose) log(`  Turn ${i + 1}: [connect]`);
@@ -161,9 +161,9 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
         }
         if (testRecordingDir) {
           const events = createRecordingGenerator(client!.connect(), testRecordingDir, i);
-          turnData = await collectTurnData(events, i);
+          turnData = await collectTurnData(events, i, { onDebug: debug });
         } else {
-          turnData = await executeConnectTurn(client!, i);
+          turnData = await executeConnectTurn(client!, i, { onDebug: debug });
         }
       } else if (isUserTurn(turn)) {
         // User message turn
@@ -171,9 +171,9 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
         if (verbose) log(`  Turn ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
         if (testRecordingDir) {
           const events = createRecordingGenerator(client!.sendMessage({ message: userMessage }), testRecordingDir, i);
-          turnData = await collectTurnData(events, i);
+          turnData = await collectTurnData(events, i, { onDebug: debug });
         } else {
-          turnData = await executeTurn(client!, userMessage, i);
+          turnData = await executeTurn(client!, userMessage, i, { onDebug: debug });
         }
       } else {
         // Should never happen due to Zod validation

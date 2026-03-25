@@ -117,6 +117,7 @@ export class AGUIWSSClient {
 
     const onPayload = (payload: z.infer<typeof payloadSchema>) => {
       if (payload.conversationId && payload.conversationId !== this.threadId) {
+        this.debug(`[AGUIWSS] Skipping payload for different conversation: ${payload.conversationId} (expected: ${this.threadId})`);
         return;
       }
 
@@ -132,6 +133,8 @@ export class AGUIWSSClient {
         const parsed = eventSchema.safeParse(raw);
         if (!parsed.success) continue;
         const event = parsed.data;
+
+        this.debug(`[AGUIWSS] Event: ${event.type}`);
 
         const aguiEvent = convertToAGUIEvent(event);
         if (aguiEvent) {

@@ -14,10 +14,11 @@ interface PendingToolCall {
 export async function executeTurn(
   client: ProtocolClient,
   userMessage: string,
-  turnIndex: number
+  turnIndex: number,
+  options?: CollectOptions
 ): Promise<TurnData> {
   const events = client.sendMessage({ message: userMessage });
-  return collectTurnData(events, turnIndex);
+  return collectTurnData(events, turnIndex, options);
 }
 
 /**
@@ -25,13 +26,18 @@ export async function executeTurn(
  */
 export async function executeConnectTurn(
   client: ProtocolClient,
-  turnIndex: number
+  turnIndex: number,
+  options?: CollectOptions
 ): Promise<TurnData> {
   if (!client.connect) {
     throw new Error("Client does not support connect operation");
   }
   const events = client.connect();
-  return collectTurnData(events, turnIndex);
+  return collectTurnData(events, turnIndex, options);
+}
+
+export interface CollectOptions {
+  onDebug?: (message: string) => void;
 }
 
 /**
@@ -40,7 +46,8 @@ export async function executeConnectTurn(
  */
 export async function collectTurnData(
   events: AsyncGenerator<TimestampedEvent>,
-  turnIndex: number
+  turnIndex: number,
+  options?: CollectOptions
 ): Promise<TurnData> {
   const toolCalls: ToolCall[] = [];
   const pendingToolCalls = new Map<string, PendingToolCall>();
@@ -58,6 +65,7 @@ export async function collectTurnData(
 
     handleEvent(event, toolCalls, pendingToolCalls, (text) => {
       assistantText += text;
+      options?.onDebug?.(`[text] ${text}`);
     });
   }
 
