@@ -217,7 +217,7 @@ describe("named assertions integration", () => {
     const result = evaluateTurnAssertions(
       turnData,
       { fast_response: {} } as any,
-      named
+      { namedAssertions: named }
     );
     expect(result.passed).toBe(true);
   });
@@ -241,7 +241,7 @@ describe("named assertions integration", () => {
     const result = evaluateTurnAssertions(
       turnData,
       { tool_called_n_times: { tool_name: "search", n: 2 } } as any,
-      named
+      { namedAssertions: named }
     );
     expect(result.passed).toBe(true);
   });
@@ -261,7 +261,7 @@ describe("named assertions integration", () => {
     const result = evaluateTurnAssertions(
       turnData,
       { tool_called_n_times: { tool_name: "search", n: 3 } } as any,
-      named
+      { namedAssertions: named }
     );
     expect(result.passed).toBe(false);
   });
@@ -281,7 +281,7 @@ describe("named assertions integration", () => {
         fast_response: {},
         text: { matches: "status" },
       } as any,
-      named
+      { namedAssertions: named }
     );
     expect(result.passed).toBe(true);
   });

@@ -125,6 +125,62 @@ describe("mergeAssertBlocks", () => {
     });
   });
 
+  describe("s9 duplication trace", () => {
+    it("does not duplicate named assertion keys across levels", () => {
+      const test = { fast_test: { ms: 300000 } } as any;
+      const turn = {
+        calls_agent: { agent: "stability_analyzer_agent" },
+        fast_turn: { ms: 120000 },
+      } as any;
+
+      const merged = mergeAssertBlocks(undefined, test, turn);
+      // Should have 3 distinct keys, no duplication
+      const keys = Object.keys(merged);
+      expect(keys).toContain("calls_agent");
+      expect(keys).toContain("fast_turn");
+      expect(keys).toContain("fast_test");
+      // No 'and' wrapper needed — all are different keys
+      expect(merged.and).toBeUndefined();
+    });
+
+    it("end-to-end: resolve after merge does not create excessive assertions", async () => {
+      const { resolveAssertBlock } = await import("../assertions/resolver.js");
+      const { evaluateTurnAssertions } = await import("../assertions/engine.js");
+
+      const named = {
+        fast_turn: { response: { having: { durationMs: { max: "${ms}" } } } },
+        fast_test: { response: { having: { durationMs: { max: "${ms}" } } } },
+        calls_agent: { tool_names: { some: { equals: "${agent}" } } },
+      };
+
+      const test = { fast_test: { ms: 300000 } } as any;
+      const turn = {
+        calls_agent: { agent: "stability_analyzer_agent" },
+        fast_turn: { ms: 120000 },
+      } as any;
+
+      const merged = mergeAssertBlocks(undefined, test, turn);
+      const resolved = resolveAssertBlock(merged, named);
+
+      const turnData = {
+        turnIndex: 0,
+        toolCalls: [{ name: "stability_analyzer_agent", args: {}, result: "ok", timestamp: 1000 }],
+        assistantText: "done",
+        startTs: 1000,
+        endTs: 2000,
+      };
+
+      const evalResult = evaluateTurnAssertions(turnData, resolved as any, {
+        namedAssertions: {},
+      });
+
+      // Should have exactly: tool_names + 2 durationMs checks (fast_turn + fast_test)
+      const durationResults = evalResult.results.filter(r => r.path?.join(" → ").includes("durationMs"));
+      expect(durationResults).toHaveLength(2);
+      expect(evalResult.passed).toBe(true);
+    });
+  });
+
   describe("empty merges", () => {
     it("returns empty object when all levels are undefined", () => {
       const result = mergeAssertBlocks(undefined, undefined, undefined);

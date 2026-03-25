@@ -8,6 +8,7 @@ export default defineConfig({
   clean: true,
   sourcemap: true,
   dts: true,
+  external: ['pino', 'pino-pretty'],
   banner: {
     js: `#!/usr/bin/env node
 import { createRequire } from 'module';

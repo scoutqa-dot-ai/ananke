@@ -1,6 +1,7 @@
 import type { TurnData, TestData } from "../types/data.js";
 import type { AssertBlock } from "../types/test.js";
-import type { AssertionResult } from "./types.js";
+import type { AssertionResult, EvalContext } from "./types.js";
+import type { Logger } from "../logger.js";
 import { evaluate, type AssertionNode } from "./evaluator.js";
 import { extractSelector, SELECTOR_KEYS, type SelectorData } from "./selectors.js";
 import {
@@ -8,9 +9,17 @@ import {
   type NamedAssertions,
 } from "./resolver.js";
 
+export interface EvaluationOptions {
+  namedAssertions?: NamedAssertions;
+  logger?: Logger;
+}
+
 export interface EvaluationResult {
   passed: boolean;
+  /** All assertion results (both passed and failed) */
   results: AssertionResult[];
+  /** Only the failures */
+  failures: AssertionResult[];
 }
 
 /**
@@ -19,7 +28,8 @@ export interface EvaluationResult {
  */
 function evaluateAssertBlock(
   selectorData: SelectorData,
-  assertions: AssertBlock
+  assertions: AssertBlock,
+  logger?: Logger
 ): AssertionResult[] {
   const results: AssertionResult[] = [];
 
@@ -29,7 +39,7 @@ function evaluateAssertBlock(
     if (node !== undefined) {
       const value = extractSelector(selectorName, selectorData);
       results.push(
-        ...evaluate(value, node as AssertionNode, { path: [selectorName] })
+        ...evaluate(value, node as AssertionNode, { path: [selectorName], logger })
       );
     }
   }
@@ -41,7 +51,7 @@ function evaluateAssertBlock(
     let anyPassed = false;
 
     for (const branch of branches) {
-      const branchResults = evaluateAssertBlock(selectorData, branch);
+      const branchResults = evaluateAssertBlock(selectorData, branch, logger);
       const failures = branchResults.filter((r) => !r.passed);
       if (failures.length === 0) {
         anyPassed = true;
@@ -51,7 +61,7 @@ function evaluateAssertBlock(
     }
 
     if (!anyPassed) {
-      results.push({
+        results.push({
         passed: false,
         assertion: "or",
         path: ["or"],
@@ -64,19 +74,20 @@ function evaluateAssertBlock(
           )
           .join("; "),
       });
+      logger?.debug(`[assert] or: FAILED — all ${branches.length} branches failed`);
     }
   }
 
   if (assertions.and) {
     const branches = assertions.and as AssertBlock[];
     for (const branch of branches) {
-      results.push(...evaluateAssertBlock(selectorData, branch));
+      results.push(...evaluateAssertBlock(selectorData, branch, logger));
     }
   }
 
   if (assertions.not) {
     const branch = assertions.not as AssertBlock;
-    const innerResults = evaluateAssertBlock(selectorData, branch);
+    const innerResults = evaluateAssertBlock(selectorData, branch, logger);
     const failures = innerResults.filter((r) => !r.passed);
     if (failures.length === 0) {
       results.push({
@@ -86,6 +97,7 @@ function evaluateAssertBlock(
         expected: "assertion to fail",
         actual: "assertion passed",
       });
+      logger?.debug(`[assert] not: FAILED — inner assertion passed`);
     }
   }
 
@@ -95,7 +107,7 @@ function evaluateAssertBlock(
       ...evaluate(
         JSON.stringify(selectorData),
         { script: assertions.script } as AssertionNode,
-        { path: ["script"] }
+        { path: ["script"], logger }
       )
     );
   }
@@ -111,6 +123,7 @@ function evaluateAssertBlock(
         expected: "a valid selector, operator, or named assertion",
         actual: `unrecognized key "${key}"`,
       });
+      logger?.debug(`[assert] ${key}: FAILED — unknown assertion`);
     }
   }
 
@@ -123,10 +136,10 @@ function evaluateAssertBlock(
 export function evaluateTurnAssertions(
   turnData: TurnData,
   assertions: AssertBlock,
-  namedAssertions?: NamedAssertions
+  options?: EvaluationOptions
 ): EvaluationResult {
-  const resolved = namedAssertions
-    ? resolveAssertBlock(assertions, namedAssertions)
+  const resolved = options?.namedAssertions
+    ? resolveAssertBlock(assertions, options.namedAssertions)
     : assertions;
 
   const selectorData: SelectorData = {
@@ -136,11 +149,12 @@ export function evaluateTurnAssertions(
     endTs: turnData.endTs,
   };
 
-  const allResults = evaluateAssertBlock(selectorData, resolved);
-  const failures = allResults.filter((r) => !r.passed);
+  const results = evaluateAssertBlock(selectorData, resolved, options?.logger);
+  const failures = results.filter((r) => !r.passed);
   return {
     passed: failures.length === 0,
-    results: failures,
+    results,
+    failures,
   };
 }
 
@@ -150,10 +164,10 @@ export function evaluateTurnAssertions(
 export function evaluateTestAssertions(
   testData: TestData,
   assertions: AssertBlock,
-  namedAssertions?: NamedAssertions
+  options?: EvaluationOptions
 ): EvaluationResult {
-  const resolved = namedAssertions
-    ? resolveAssertBlock(assertions, namedAssertions)
+  const resolved = options?.namedAssertions
+    ? resolveAssertBlock(assertions, options.namedAssertions)
     : assertions;
 
   const selectorData: SelectorData = {
@@ -163,10 +177,11 @@ export function evaluateTestAssertions(
     endTs: testData.endTs,
   };
 
-  const allResults = evaluateAssertBlock(selectorData, resolved);
-  const failures = allResults.filter((r) => !r.passed);
+  const results = evaluateAssertBlock(selectorData, resolved, options?.logger);
+  const failures = results.filter((r) => !r.passed);
   return {
     passed: failures.length === 0,
-    results: failures,
+    results,
+    failures,
   };
 }

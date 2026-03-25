@@ -7,11 +7,11 @@ import {
   DEFAULT_TEST_PATTERNS,
 } from '../../config/index.js';
 import { runTest, type TestResult } from '../../runner/index.js';
+import { formatDuration } from '../../runner/format.js';
+import { createLogger } from '../../logger.js';
 
 export interface RunOptions {
   config?: string;
-  verbose?: boolean;
-  debug?: boolean;
   dryRun?: boolean;
   json?: boolean;
   record?: string;
@@ -22,18 +22,17 @@ export const runCommand = new Command('run')
   .description('Run test files')
   .argument('[patterns...]', 'Test file patterns (glob)')
   .option('-c, --config <path>', 'Path to config file')
-  .option('-v, --verbose', 'Verbose output')
-  .option('--debug', 'Debug output (detailed request/response logs)')
   .option('-d, --dry-run', 'Validate tests without executing')
   .option('--json', 'Output results as JSON')
   .option('--record <dir>', 'Record events to directory')
   .option('--replay <dir>', 'Replay events from directory')
   .action(async (patterns: string[], options: RunOptions) => {
-    const verbose = options.verbose ?? false;
-    const debugMode = options.debug ?? false;
     const jsonOutput = options.json ?? false;
     const recordDir = options.record;
     const replayDir = options.replay;
+
+    // Create logger from ANANKE_LOG_LEVEL env var (default: info)
+    const logger = createLogger({ json: jsonOutput });
 
     // Validate mutually exclusive options
     if (recordDir && replayDir) {
@@ -46,9 +45,7 @@ export const runCommand = new Command('run')
     const logError = jsonOutput ? () => {} : console.error;
 
     // Load project config
-    if (verbose) {
-      log(pc.dim('Loading config...'));
-    }
+    logger.debug('Loading config...');
 
     let configResult;
     try {
@@ -62,19 +59,15 @@ export const runCommand = new Command('run')
       process.exit(1);
     }
 
-    if (verbose) {
-      log(pc.dim(`Config loaded from: ${configResult.configPath}`));
-      log(pc.dim(`Endpoint: ${configResult.config.target.endpoint}`));
-    }
+    logger.debug(`Config loaded from: ${configResult.configPath}`);
+    logger.debug(`Endpoint: ${configResult.config.target.endpoint}`);
 
     // Find test files
     const testPatterns =
       patterns.length > 0 ? patterns : DEFAULT_TEST_PATTERNS;
     const cwd = process.cwd();
 
-    if (verbose) {
-      log(pc.dim(`Finding tests with patterns: ${testPatterns.join(', ')}`));
-    }
+    logger.debug(`Finding tests with patterns: ${testPatterns.join(', ')}`);
 
     let testFiles;
     try {
@@ -107,9 +100,7 @@ export const runCommand = new Command('run')
       try {
         const { test } = loadTestFile(filePath);
         tests.push({ test, filePath });
-        if (verbose) {
-          log(pc.green('  ✓'), pc.dim(filePath), pc.dim(`(${test.turns.length} turns)`));
-        }
+        logger.debug(`  ✓ ${filePath} (${test.turns.length} turns)`);
       } catch (err) {
         hasErrors = true;
         logError(pc.red('  ✗'), filePath);
@@ -145,18 +136,14 @@ export const runCommand = new Command('run')
 
     for (const { test, filePath } of tests) {
       log(pc.cyan(`Running: ${test.name}`));
-      if (verbose) {
-        log(pc.dim(`  File: ${filePath}`));
-      }
+      logger.debug(`  File: ${filePath}`);
 
       try {
         const result = await runTest({
           config: configResult.config,
           test,
           testFilePath: filePath,
-          verbose: verbose && !jsonOutput,
-          onLog: (msg) => log(pc.dim(msg)),
-          onDebug: debugMode && !jsonOutput ? (msg) => log(pc.dim(msg)) : undefined,
+          logger,
           recordDir,
           replayDir,
         });
@@ -165,7 +152,7 @@ export const runCommand = new Command('run')
 
         if (result.passed) {
           passed++;
-          log(pc.green(`  ✓ PASS`), pc.dim(`(${result.testData.endTs - result.testData.startTs}ms)`));
+          log(pc.green(`  ✓ PASS`), pc.dim(`(${formatDuration(result.testData.endTs - result.testData.startTs)})`));
         } else {
           failed++;
           log(pc.red(`  ✗ FAIL`));

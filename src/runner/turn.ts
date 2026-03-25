@@ -1,6 +1,8 @@
 import type { ProtocolClient } from "../client/types.js";
 import type { TimestampedEvent } from "../client/events.js";
 import type { TurnData, ToolCall } from "../types/index.js";
+import type { Logger } from "../logger.js";
+import { truncateLine } from "./format.js";
 
 interface PendingToolCall {
   name: string;
@@ -15,10 +17,11 @@ export async function executeTurn(
   client: ProtocolClient,
   userMessage: string,
   turnIndex: number,
-  options?: CollectOptions
+  options?: { logger?: Logger }
 ): Promise<TurnData> {
+  const sendTs = Date.now();
   const events = client.sendMessage({ message: userMessage });
-  return collectTurnData(events, turnIndex, options);
+  return collectTurnData(events, turnIndex, { ...options, sendTs });
 }
 
 /**
@@ -27,17 +30,20 @@ export async function executeTurn(
 export async function executeConnectTurn(
   client: ProtocolClient,
   turnIndex: number,
-  options?: CollectOptions
+  options?: { logger?: Logger }
 ): Promise<TurnData> {
   if (!client.connect) {
     throw new Error("Client does not support connect operation");
   }
+  const sendTs = Date.now();
   const events = client.connect();
-  return collectTurnData(events, turnIndex, options);
+  return collectTurnData(events, turnIndex, { ...options, sendTs });
 }
 
 export interface CollectOptions {
-  onDebug?: (message: string) => void;
+  logger?: Logger;
+  /** Timestamp when the request was sent (for accurate idle tracking) */
+  sendTs?: number;
 }
 
 /**
@@ -54,6 +60,8 @@ export async function collectTurnData(
   let assistantText = "";
   let startTs: number | null = null;
   let endTs: number | null = null;
+  let lastEventTs = options?.sendTs ?? Date.now();
+  const logger = options?.logger;
 
   for await (const event of events) {
     // Track first and last event timestamps
@@ -63,9 +71,19 @@ export async function collectTurnData(
     }
     endTs = eventTs;
 
+    // Trace logging with idle gap (only track idle between meaningful events)
+    if (logger) {
+      const isActivityEvent = event.type.startsWith("TOOL_CALL_") || event.type === "TEXT_MESSAGE_CONTENT";
+      const gap = eventTs - lastEventTs;
+      const idleSuffix = isActivityEvent && gap >= 1000 ? ` (idle ${(gap / 1000).toFixed(1)}s)` : "";
+      if (isActivityEvent) {
+        lastEventTs = eventTs;
+      }
+      logger.trace(`[event] ${event.type}${formatEventDetail(event)}${idleSuffix}`);
+    }
+
     handleEvent(event, toolCalls, pendingToolCalls, (text) => {
       assistantText += text;
-      options?.onDebug?.(`[text] ${text}`);
     });
   }
 
@@ -79,6 +97,19 @@ export async function collectTurnData(
     startTs: startTs ?? now,
     endTs: endTs ?? now,
   };
+}
+
+function formatEventDetail(event: TimestampedEvent): string {
+  switch (event.type) {
+    case "TOOL_CALL_START":
+      return `: ${event.toolCallName}`;
+    case "TEXT_MESSAGE_CONTENT":
+      return `: "${truncateLine(event.delta)}" (${event.delta.length} chars)`;
+    case "RUN_ERROR":
+      return `: ${event.message}`;
+    default:
+      return "";
+  }
 }
 
 function handleEvent(

@@ -1,6 +1,7 @@
 import { execa, type ResultPromise } from 'execa';
 import type { Hook } from '../types/index.js';
 import { interpolate, type Variables } from '../config/interpolate.js';
+import type { Logger } from '../logger.js';
 
 const DEFAULT_TIMEOUT_MS = 30000;
 
@@ -11,21 +12,20 @@ export interface HookResult {
 
 export interface ExecuteHookOptions {
   currentVars?: Variables;
-  onDebug?: (message: string) => void;
+  logger?: Logger;
 }
 
 /**
  * Execute a single hook and parse its JSON output
  * @param hook The hook configuration
- * @param options Execution options (variables, debug callback)
+ * @param options Execution options (variables, logger)
  */
 export async function executeHook(hook: Hook, options: ExecuteHookOptions = {}): Promise<HookResult> {
-  const { currentVars = {}, onDebug } = options;
-  const debug = onDebug ?? (() => {});
+  const { currentVars = {}, logger } = options;
   const [cmd, ...args] = hook.cmd;
   const timeout = hook.timeout_ms ?? DEFAULT_TIMEOUT_MS;
 
-  debug(`[Hook] Running: ${hook.cmd.join(' ')}`);
+  logger?.trace(`[Hook] Running: ${hook.cmd.join(' ')}`);
 
   // Build environment with interpolated values
   let env: NodeJS.ProcessEnv | undefined;
@@ -34,7 +34,7 @@ export async function executeHook(hook: Hook, options: ExecuteHookOptions = {}):
     for (const [key, value] of Object.entries(hook.env)) {
       const interpolated = interpolate(value, currentVars);
       env[key] = interpolated;
-      debug(`[Hook] Env: ${key}=${interpolated}`);
+      logger?.trace(`[Hook] Env: ${key}=${interpolated}`);
     }
   }
 
@@ -46,28 +46,28 @@ export async function executeHook(hook: Hook, options: ExecuteHookOptions = {}):
       env,
     });
   } catch (err) {
-    debug(`[Hook] Failed to start: ${(err as Error).message}`);
+    logger?.trace(`[Hook] Failed to start: ${(err as Error).message}`);
     throw new Error(`Failed to start hook: ${hook.cmd.join(' ')}`);
   }
 
   const result = await subprocess;
-  debug(`[Hook] Exit code: ${result.exitCode}`);
+  logger?.trace(`[Hook] Exit code: ${result.exitCode}`);
 
   // Log stderr if present (useful for debugging)
   const stderrRaw = result.stderr;
   const stderr = typeof stderrRaw === 'string' ? stderrRaw.trim() : '';
   if (stderr) {
-    debug(`[Hook] Stderr: ${stderr.slice(0, 200)}${stderr.length > 200 ? '...' : ''}`);
+    logger?.trace(`[Hook] Stderr: ${stderr.slice(0, 200)}${stderr.length > 200 ? '...' : ''}`);
   }
 
   const stdoutRaw = result.stdout;
   const stdout = typeof stdoutRaw === 'string' ? stdoutRaw.trim() : '';
   if (!stdout) {
-    debug(`[Hook] No output`);
+    logger?.trace(`[Hook] No output`);
     return { variables: {}, stdout: '' };
   }
 
-  debug(`[Hook] Stdout: ${stdout.slice(0, 200)}${stdout.length > 200 ? '...' : ''}`);
+  logger?.trace(`[Hook] Stdout: ${stdout.slice(0, 200)}${stdout.length > 200 ? '...' : ''}`);
 
   let parsed: unknown;
   try {
@@ -94,12 +94,12 @@ export async function executeHook(hook: Hook, options: ExecuteHookOptions = {}):
     variables[key] = String(value);
   }
 
-  debug(`[Hook] Variables: ${Object.keys(variables).join(', ') || '(none)'}`);
+  logger?.trace(`[Hook] Variables: ${Object.keys(variables).join(', ') || '(none)'}`);
   return { variables, stdout };
 }
 
 export interface ExecuteHooksOptions {
-  onDebug?: (message: string) => void;
+  logger?: Logger;
 }
 
 /**
@@ -109,7 +109,7 @@ export async function executeHooks(hooks: Hook[], options: ExecuteHooksOptions =
   const variables: Variables = {};
 
   for (const hook of hooks) {
-    const result = await executeHook(hook, { currentVars: variables, onDebug: options.onDebug });
+    const result = await executeHook(hook, { currentVars: variables, logger: options.logger });
     Object.assign(variables, result.variables);
   }
 

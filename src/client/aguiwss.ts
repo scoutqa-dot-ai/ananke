@@ -3,6 +3,7 @@ import WebSocket from "ws";
 import { z } from "zod";
 
 import type { AGUIEvent, TimestampedEvent } from "./events.js";
+import type { Logger } from "../logger.js";
 
 // Assign WebSocket to globalThis for @stomp/stompjs
 Object.assign(globalThis, { WebSocket });
@@ -12,7 +13,7 @@ export interface AGUIWSSClientOptions {
   agentId: string;
   headers?: Record<string, string>;
   timeout_ms?: number;
-  onDebug?: (message: string) => void;
+  logger?: Logger;
 
   // AG-UI specific options
   forwardedProps?: Record<string, unknown>;
@@ -54,6 +55,22 @@ const messageSchema = z.object({
   additionalData: payloadSchema.optional(),
 });
 
+const SENSITIVE_HEADER_RE = /^(Authorization|Cookie|X-Api-Key|Token):.*$/gim;
+
+function sanitizeStompDebug(msg: string): string {
+  // Redact sensitive headers
+  const redacted = msg.replace(SENSITIVE_HEADER_RE, (match) => {
+    const colon = match.indexOf(":");
+    return `${match.slice(0, colon)}:[REDACTED]`;
+  });
+  // Collapse to single line and truncate (STOMP dumps full frame bodies)
+  const escaped = redacted.replace(/\n/g, "\\n").replace(/\r/g, "\\r");
+  if (escaped.length > 80) {
+    return `${escaped.slice(0, 80)}... (${msg.length} chars)`;
+  }
+  return escaped;
+}
+
 /**
  * AG-UI client that receives events via STOMP/WebSocket
  * and sends messages via HTTP POST.
@@ -68,7 +85,7 @@ export class AGUIWSSClient {
   private agentId: string;
   private timeout_ms: number;
   private headers: Record<string, string>;
-  private debug: (message: string) => void;
+  private logger?: Logger;
   private state: Record<string, unknown> | undefined;
   private threadId: string;
   private forwardedProps: Record<string, unknown> | undefined;
@@ -83,7 +100,7 @@ export class AGUIWSSClient {
     this.agentId = options.agentId;
     this.timeout_ms = options.timeout_ms ?? DEFAULT_TIMEOUT_MS;
     this.headers = options.headers ?? {};
-    this.debug = options.onDebug ?? (() => {});
+    this.logger = options.logger;
     this.state = options.state;
     this.threadId = options.threadId ?? crypto.randomUUID();
     this.forwardedProps = options.forwardedProps;
@@ -117,7 +134,7 @@ export class AGUIWSSClient {
 
     const onPayload = (payload: z.infer<typeof payloadSchema>) => {
       if (payload.conversationId && payload.conversationId !== this.threadId) {
-        this.debug(`[AGUIWSS] Skipping payload for different conversation: ${payload.conversationId} (expected: ${this.threadId})`);
+        this.logger?.trace(`[AGUIWSS] Skipping payload for different conversation: ${payload.conversationId} (expected: ${this.threadId})`);
         return;
       }
 
@@ -133,8 +150,6 @@ export class AGUIWSSClient {
         const parsed = eventSchema.safeParse(raw);
         if (!parsed.success) continue;
         const event = parsed.data;
-
-        this.debug(`[AGUIWSS] Event: ${event.type}`);
 
         const aguiEvent = convertToAGUIEvent(event);
         if (aguiEvent) {
@@ -158,7 +173,7 @@ export class AGUIWSSClient {
 
     // Send HTTP message
     try {
-      this.debug(`[AGUIWSS] Sending message to ${this.endpoint}/${this.agentId}/run`);
+      this.logger?.trace(`[AGUIWSS] Sending message to ${this.endpoint}/${this.agentId}/run`);
       await this.sendHttpMessage(options.message);
     } catch (err) {
       if (activeTimeoutId) clearTimeout(activeTimeoutId);
@@ -224,11 +239,11 @@ export class AGUIWSSClient {
         },
         connectHeaders: this.wsStompHeaders,
         reconnectDelay: 0,
-        debug: (msg) => this.debug(`[STOMP] ${msg}`),
+        debug: (msg) => this.logger?.trace(`[STOMP] ${sanitizeStompDebug(msg)}`),
       });
 
       client.onConnect = () => {
-        this.debug(`[AGUIWSS] STOMP connected, subscribing to ${this.wsTopic}`);
+        this.logger?.trace(`[AGUIWSS] STOMP connected, subscribing to ${this.wsTopic}`);
         client.subscribe(
           this.wsTopic,
           (message: IMessage) => {

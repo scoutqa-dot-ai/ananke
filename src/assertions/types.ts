@@ -1,3 +1,5 @@
+import type { Logger } from "../logger.js";
+
 export interface AssertionResult {
   passed: boolean;
   assertion: string;
@@ -9,4 +11,5 @@ export interface AssertionResult {
 
 export interface EvalContext {
   path: string[];
+  logger?: Logger;
 }

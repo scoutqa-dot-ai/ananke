@@ -2,6 +2,7 @@ import type { ProjectConfig, Target } from "../types/config.js";
 import { AGUIClient } from "./agui.js";
 import { AGUIWSSClient } from "./aguiwss.js";
 import type { ProtocolClient } from "./types.js";
+import type { Logger } from "../logger.js";
 
 export * from "./agui.js";
 export { AGUIWSSClient } from "./aguiwss.js";
@@ -10,7 +11,7 @@ export * from "./events.js";
 export * from "./types.js";
 
 export interface CreateClientOptions {
-  onDebug?: (message: string) => void;
+  logger?: Logger;
 }
 
 /**
@@ -33,7 +34,7 @@ export function createClient(
         threadId: target.threadId,
         forwardedProps: target.forwardedProps,
         state: target.state,
-        onDebug: options.onDebug,
+        logger: options.logger,
       });
 
     case "aguiwss":
@@ -50,7 +51,7 @@ export function createClient(
         wsTopic: target.wsTopic,
         wsHeaders: target.wsHeaders,
         wsStompHeaders: target.wsStompHeaders,
-        onDebug: options.onDebug,
+        logger: options.logger,
       });
 
     // Future target types:

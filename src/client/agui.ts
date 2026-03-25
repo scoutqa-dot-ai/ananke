@@ -5,13 +5,14 @@ import {
   transformHttpEventStream,
 } from "@ag-ui/client";
 import type { AGUIEvent, TimestampedEvent } from "./events.js";
+import type { Logger } from "../logger.js";
 
 export interface AGUIClientOptions {
   endpoint: string;
   headers?: Record<string, string>;
   maxRetries?: number;
   timeout_ms?: number;
-  onDebug?: (message: string) => void;
+  logger?: Logger;
 
   // AG-UI specific options
   agentId?: string;
@@ -42,7 +43,7 @@ export class AGUIClient {
   private maxRetries: number;
   private timeout_ms: number;
   private headers: Record<string, string>;
-  private debug: (message: string) => void;
+  private logger?: Logger;
   private state: Record<string, unknown> | undefined;
   private threadId: string;
   private forwardedProps: Record<string, unknown> | undefined;
@@ -53,7 +54,7 @@ export class AGUIClient {
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.timeout_ms = options.timeout_ms ?? DEFAULT_TIMEOUT_MS;
     this.headers = options.headers ?? {};
-    this.debug = options.onDebug ?? (() => {});
+    this.logger = options.logger;
     this.state = options.state;
     this.threadId = options.threadId ?? randomUUID();
     this.forwardedProps = options.forwardedProps;
@@ -138,8 +139,8 @@ export class AGUIClient {
         signal: controller.signal,
       };
 
-      this.debug(`[AG-UI] ${method} -> ${this.endpoint} (timeout: ${this.timeout_ms}ms)`);
-      this.debug(`[AG-UI] Request: ${JSON.stringify(envelope, null, 2)}`);
+      this.logger?.trace(`[AG-UI] ${method} -> ${this.endpoint} (timeout: ${this.timeout_ms}ms)`);
+      this.logger?.trace(`[AG-UI] Request: ${JSON.stringify(envelope, null, 2)}`);
 
       try {
         const httpEvents = runHttpRequest(this.endpoint, requestInit);
@@ -150,7 +151,7 @@ export class AGUIClient {
           eventStream.subscribe({
             next: (event) => {
               receivedMeaningfulEvents = true;
-              this.debug(`[AG-UI] Event: ${event.type}`);
+              this.logger?.trace(`[AG-UI] Event: ${event.type}`);
               const aguiEvent = convertToAGUIEvent(event);
               if (aguiEvent) {
                 // Add timestamp at event arrival time
@@ -165,7 +166,7 @@ export class AGUIClient {
                 : err instanceof Error
                   ? err.message
                   : "Unknown error";
-              this.debug(`[AG-UI] Error: ${message}`);
+              this.logger?.trace(`[AG-UI] Error: ${message}`);
               events.push({
                 type: "RUN_ERROR",
                 runId: "",
@@ -176,7 +177,7 @@ export class AGUIClient {
             },
             complete: () => {
               clearTimeout(timeoutId);
-              this.debug(`[AG-UI] Stream complete (${events.length} events)`);
+              this.logger?.trace(`[AG-UI] Stream complete (${events.length} events)`);
               resolve();
             },
           });
@@ -184,7 +185,7 @@ export class AGUIClient {
 
         // If completed without receiving any meaningful events, retry
         if (!receivedMeaningfulEvents && attempt < this.maxRetries) {
-          this.debug(
+          this.logger?.trace(
             `[AG-UI] No events received, retrying (${attempt}/${this.maxRetries})...`
           );
           await sleep(RETRY_DELAY_MS);

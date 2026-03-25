@@ -16,12 +16,14 @@ import type {
 import { isUserTurn, isConnectTurn } from "../types/test.js";
 import { executeTurn, executeConnectTurn, collectTurnData } from "./turn.js";
 import { mergeAssertBlocks } from "./merge.js";
+import { formatDuration } from "./format.js";
 import {
   evaluateTurnAssertions,
   evaluateTestAssertions,
   validateNamedAssertions,
   type AssertionResult,
   type NamedAssertions,
+  type EvaluationOptions,
 } from "../assertions/index.js";
 import {
   getTestRecordingDir,
@@ -30,14 +32,13 @@ import {
   replayEvents,
   loadHookOutput,
 } from "../recording/index.js";
+import type { Logger } from "../logger.js";
 
 export interface TestRunnerOptions {
   config: ProjectConfig;
   test: TestFile;
   testFilePath: string;
-  verbose?: boolean;
-  onLog?: (message: string) => void;
-  onDebug?: (message: string) => void;
+  logger: Logger;
   recordDir?: string;
   replayDir?: string;
 }
@@ -54,9 +55,7 @@ export interface TestResult {
  * Run a single test file
  */
 export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
-  const { config, test, testFilePath, verbose, onLog, onDebug, recordDir, replayDir } = options;
-  const log = onLog ?? (() => {});
-  const debug = onDebug ?? (() => {});
+  const { config, test, testFilePath, logger, recordDir, replayDir } = options;
 
   const startTs = Date.now();
   const turns: TurnData[] = [];
@@ -68,15 +67,20 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
     validateNamedAssertions(namedAssertions);
   }
 
+  const evalOptions: EvaluationOptions = {
+    namedAssertions,
+    logger,
+  };
+
   // Get recording directory for this test (use relative path)
   const relativeTestPath = relative(process.cwd(), testFilePath);
   const testRecordingDir = recordDir ? getTestRecordingDir(recordDir, relativeTestPath) : undefined;
   const testReplayDir = replayDir ? getTestRecordingDir(replayDir, relativeTestPath) : undefined;
 
   if (testReplayDir) {
-    debug(`[Replay] Loading from: ${testReplayDir}`);
+    logger.trace(`[Replay] Loading from: ${testReplayDir}`);
   } else if (testRecordingDir) {
-    debug(`[Record] Saving to: ${testRecordingDir}`);
+    logger.trace(`[Record] Saving to: ${testRecordingDir}`);
   }
 
   // Execute hooks and collect variables
@@ -84,25 +88,23 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
   if (test.hooks && test.hooks.length > 0) {
     if (replayDir) {
       // Replay mode: load hook outputs from files
-      if (verbose) log('  Loading hooks from recording...');
+      logger.debug('  Loading hooks from recording...');
       for (let i = 0; i < test.hooks.length; i++) {
         const hookVars = await loadHookOutput(replayDir, relativeTestPath, i);
         if (hookVars) {
           Object.assign(variables, hookVars);
         }
       }
-      if (verbose) {
-        const varKeys = Object.keys(variables);
-        if (varKeys.length > 0) {
-          log(`  Variables: ${varKeys.join(', ')}`);
-        }
+      const varKeys = Object.keys(variables);
+      if (varKeys.length > 0) {
+        logger.debug(`  Variables: ${varKeys.join(', ')}`);
       }
     } else {
       // Normal/record mode: execute hooks
-      if (verbose) log('  Executing hooks...');
+      logger.debug('  Executing hooks...');
       try {
         for (let i = 0; i < test.hooks.length; i++) {
-          const result = await executeHook(test.hooks[i], { currentVars: variables, onDebug: debug });
+          const result = await executeHook(test.hooks[i], { currentVars: variables, logger });
           Object.assign(variables, result.variables);
 
           // Record hook output if recording
@@ -110,11 +112,9 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
             await recordHookOutput(testRecordingDir, i, result.variables);
           }
         }
-        if (verbose) {
-          const varKeys = Object.keys(variables);
-          if (varKeys.length > 0) {
-            log(`  Variables: ${varKeys.join(', ')}`);
-          }
+        const varKeys = Object.keys(variables);
+        if (varKeys.length > 0) {
+          logger.debug(`  Variables: ${varKeys.join(', ')}`);
         }
       } catch (err) {
         return {
@@ -136,7 +136,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
   // Create client (only needed for non-replay mode)
   const client: ProtocolClient | undefined = testReplayDir
     ? undefined
-    : createClient(interpolatedConfig, { onDebug: debug });
+    : createClient(interpolatedConfig, { logger });
 
   // Execute turns
   for (let i = 0; i < test.turns.length; i++) {
@@ -148,34 +148,34 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
       if (testReplayDir) {
         // Replay mode: load events from file
         if (isConnectTurn(turn)) {
-          if (verbose) log(`  Turn ${i + 1}: [connect] (replay)`);
+          logger.debug(`  Turn ${i + 1}: [connect] (replay)`);
         } else if (isUserTurn(turn)) {
           const userMessage = interpolate(turn.user, variables);
-          if (verbose) log(`  Turn ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}" (replay)`);
+          logger.debug(`  Turn ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}" (replay)`);
         }
         const events = replayEvents(replayDir!, relativeTestPath, i);
-        turnData = await collectTurnData(events, i, { onDebug: debug });
+        turnData = await collectTurnData(events, i, { logger });
       } else if (isConnectTurn(turn)) {
         // Connect turn - no message, just observe
-        if (verbose) log(`  Turn ${i + 1}: [connect]`);
+        logger.debug(`  Turn ${i + 1}: [connect]`);
         if (!client!.connect) {
           throw new Error("Client does not support connect operation");
         }
         if (testRecordingDir) {
           const events = createRecordingGenerator(client!.connect(), testRecordingDir, i);
-          turnData = await collectTurnData(events, i, { onDebug: debug });
+          turnData = await collectTurnData(events, i, { logger });
         } else {
-          turnData = await executeConnectTurn(client!, i, { onDebug: debug });
+          turnData = await executeConnectTurn(client!, i, { logger });
         }
       } else if (isUserTurn(turn)) {
         // User message turn
         const userMessage = interpolate(turn.user, variables);
-        if (verbose) log(`  Turn ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
+        logger.debug(`  Turn ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
         if (testRecordingDir) {
           const events = createRecordingGenerator(client!.sendMessage({ message: userMessage }), testRecordingDir, i);
-          turnData = await collectTurnData(events, i, { onDebug: debug });
+          turnData = await collectTurnData(events, i, { logger });
         } else {
-          turnData = await executeTurn(client!, userMessage, i, { onDebug: debug });
+          turnData = await executeTurn(client!, userMessage, i, { logger });
         }
       } else {
         // Should never happen due to Zod validation
@@ -184,10 +184,8 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
 
       turns.push(turnData);
 
-      if (verbose) {
-        log(`    Tools: ${turnData.toolCalls.map((t) => t.name).join(', ') || '(none)'}`);
-        log(`    Duration: ${turnData.endTs - turnData.startTs}ms`);
-      }
+      logger.debug(`    Tools: ${turnData.toolCalls.map((t) => t.name).join(', ') || '(none)'}`);
+      logger.debug(`    Duration: ${formatDuration(turnData.endTs - turnData.startTs)}`);
 
       // Evaluate turn-level assertions (merged: target -> test -> turn)
       const turnAssertions = mergeAssertBlocks(
@@ -198,12 +196,10 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
       const hasAssertions = Object.keys(turnAssertions).length > 0;
 
       if (hasAssertions) {
-        const evalResult = evaluateTurnAssertions(turnData, turnAssertions, namedAssertions);
+        const evalResult = evaluateTurnAssertions(turnData, turnAssertions, evalOptions);
         if (!evalResult.passed) {
-          for (const failure of evalResult.results) {
-            const msg = formatFailure(failure, i + 1);
-            failures.push(msg);
-            if (verbose) log(`    ${msg}`);
+          for (const failure of evalResult.failures) {
+            failures.push(formatFailure(failure, i + 1));
           }
           // Fail fast on turn-level assertion failure
           return {
@@ -235,12 +231,10 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
   const hasTestAssertions = Object.keys(testAssertions).length > 0;
 
   if (hasTestAssertions) {
-    const evalResult = evaluateTestAssertions(testData, testAssertions, namedAssertions);
+    const evalResult = evaluateTestAssertions(testData, testAssertions, evalOptions);
     if (!evalResult.passed) {
-      for (const failure of evalResult.results) {
-        const msg = formatFailure(failure);
-        failures.push(msg);
-        if (verbose) log(`  ${msg}`);
+      for (const failure of evalResult.failures) {
+        failures.push(formatFailure(failure));
       }
     }
   }

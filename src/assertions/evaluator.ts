@@ -15,12 +15,23 @@ export type AssertionNode = Record<string, unknown>;
 // Helpers
 // ---------------------------------------------------------------------------
 
+function pass(
+  assertion: string,
+  ctx: EvalContext
+): AssertionResult {
+  const result: AssertionResult = { passed: true, assertion, path: ctx.path };
+  ctx.logger?.debug(`[assert] ${ctx.path.join(" → ")}: PASSED`);
+  return result;
+}
+
 function fail(
   assertion: string,
   ctx: EvalContext,
   opts: { expected?: string; actual?: string; details?: string } = {}
 ): AssertionResult {
-  return { passed: false, assertion, path: ctx.path, ...opts };
+  const result: AssertionResult = { passed: false, assertion, path: ctx.path, ...opts };
+  ctx.logger?.debug(`[assert] ${ctx.path.join(" → ")}: FAILED — ${assertion}`);
+  return result;
 }
 
 function typeMismatch(
@@ -73,7 +84,7 @@ export function evaluate(
       const filterResults = evaluate(
         element,
         filterNode,
-        { path: [...ctx.path, "filter"] }
+        { path: [...ctx.path, "filter"], logger: ctx.logger }
       );
       return filterResults.every((r) => r.passed);
     });
@@ -82,7 +93,7 @@ export function evaluate(
   for (const key of keys) {
     if (key === "filter" && Array.isArray(value)) continue; // already handled
     const operand = node[key];
-    const childCtx: EvalContext = { path: [...ctx.path, key] };
+    const childCtx: EvalContext = { path: [...ctx.path, key], logger: ctx.logger };
 
     switch (key) {
       // --- String / Array assertions ---
@@ -93,19 +104,13 @@ export function evaluate(
         results.push(evalContains(effectiveValue, operand, childCtx));
         break;
       case "starts_with":
-        results.push(
-          evalStartsWith(effectiveValue, operand as string, childCtx)
-        );
+        results.push(evalStartsWith(effectiveValue, operand as string, childCtx));
         break;
       case "ends_with":
-        results.push(
-          evalEndsWith(effectiveValue, operand as string, childCtx)
-        );
+        results.push(evalEndsWith(effectiveValue, operand as string, childCtx));
         break;
       case "matches":
-        results.push(
-          ...evalMatches(effectiveValue, operand, childCtx)
-        );
+        results.push(...evalMatches(effectiveValue, operand, childCtx));
         break;
 
       // --- Number assertions ---
@@ -118,36 +123,24 @@ export function evaluate(
 
       // --- Array assertions ---
       case "count":
-        results.push(
-          ...evalCount(effectiveValue, operand as AssertionNode, childCtx)
-        );
+        results.push(...evalCount(effectiveValue, operand as AssertionNode, childCtx));
         break;
       case "every":
-        results.push(
-          ...evalEvery(effectiveValue, operand as AssertionNode, childCtx)
-        );
+        results.push(...evalEvery(effectiveValue, operand as AssertionNode, childCtx));
         break;
       case "some":
-        results.push(
-          ...evalSome(effectiveValue, operand as AssertionNode, childCtx)
-        );
+        results.push(...evalSome(effectiveValue, operand as AssertionNode, childCtx));
         break;
       case "none":
-        results.push(
-          ...evalNone(effectiveValue, operand as AssertionNode, childCtx)
-        );
+        results.push(...evalNone(effectiveValue, operand as AssertionNode, childCtx));
         break;
       case "ordered":
-        results.push(
-          ...evalOrdered(effectiveValue, operand as AssertionNode[], childCtx)
-        );
+        results.push(...evalOrdered(effectiveValue, operand as AssertionNode[], childCtx));
         break;
       case "filter":
         // filter on non-array is a type mismatch
         if (!Array.isArray(value)) {
-          results.push(
-            typeMismatch("filter", "array", effectiveValue, childCtx)
-          );
+          results.push(typeMismatch("filter", "array", effectiveValue, childCtx));
         }
         break;
 
@@ -158,35 +151,25 @@ export function evaluate(
 
       // --- Transforms ---
       case "having":
-        results.push(
-          ...evalHaving(
-            effectiveValue,
-            operand as Record<string, AssertionNode>,
-            childCtx
-          )
-        );
+        results.push(...evalHaving(
+          effectiveValue,
+          operand as Record<string, AssertionNode>,
+          childCtx
+        ));
         break;
       case "json":
-        results.push(
-          ...evalJson(effectiveValue, operand as AssertionNode, childCtx)
-        );
+        results.push(...evalJson(effectiveValue, operand as AssertionNode, childCtx));
         break;
 
       // --- Meta ---
       case "and":
-        results.push(
-          ...evalAnd(effectiveValue, operand as AssertionNode[], childCtx)
-        );
+        results.push(...evalAnd(effectiveValue, operand as AssertionNode[], childCtx));
         break;
       case "or":
-        results.push(
-          ...evalOr(effectiveValue, operand as AssertionNode[], childCtx)
-        );
+        results.push(...evalOr(effectiveValue, operand as AssertionNode[], childCtx));
         break;
       case "not":
-        results.push(
-          ...evalNot(effectiveValue, operand as AssertionNode, childCtx)
-        );
+        results.push(...evalNot(effectiveValue, operand as AssertionNode, childCtx));
         break;
 
       // --- Script ---
@@ -195,9 +178,7 @@ export function evaluate(
         break;
 
       default:
-        results.push(
-          fail(`Unknown assertion operator "${key}"`, childCtx)
-        );
+        results.push(fail(`Unknown assertion operator "${key}"`, childCtx));
     }
   }
 
@@ -215,7 +196,7 @@ function evalEquals(
 ): AssertionResult {
   // equals works for string, number, boolean, null
   if (value === expected) {
-    return { passed: true, assertion: "equals", path: ctx.path };
+    return pass("equals", ctx);
   }
   return fail("equals", ctx, {
     expected: stringify(expected),
@@ -232,7 +213,7 @@ function evalContains(
   if (Array.isArray(value)) {
     const someResults = evalSome(value, { equals: expected }, ctx);
     if (someResults.length === 0) {
-      return { passed: true, assertion: "contains", path: ctx.path };
+      return pass("contains", ctx);
     }
     return fail("contains", ctx, {
       expected: `array contains ${stringify(expected)}`,
@@ -247,7 +228,7 @@ function evalContains(
     return typeMismatch("contains", "string operand for string value", expected, ctx);
   }
   if (value.includes(expected)) {
-    return { passed: true, assertion: "contains", path: ctx.path };
+    return pass("contains", ctx);
   }
   return fail("contains", ctx, {
     expected: `contains "${expected}"`,
@@ -264,7 +245,7 @@ function evalStartsWith(
     return typeMismatch("starts_with", "string", value, ctx);
   }
   if (value.startsWith(expected)) {
-    return { passed: true, assertion: "starts_with", path: ctx.path };
+    return pass("starts_with", ctx);
   }
   return fail("starts_with", ctx, {
     expected: `starts with "${expected}"`,
@@ -281,7 +262,7 @@ function evalEndsWith(
     return typeMismatch("ends_with", "string", value, ctx);
   }
   if (value.endsWith(expected)) {
-    return { passed: true, assertion: "ends_with", path: ctx.path };
+    return pass("ends_with", ctx);
   }
   return fail("ends_with", ctx, {
     expected: `ends with "${expected}"`,
@@ -308,7 +289,7 @@ function evalMatches(
   const results: AssertionResult[] = [];
   for (const pattern of normalizeToArray(patterns)) {
     if (matchesPattern(value, pattern)) {
-      results.push({ passed: true, assertion: "matches", path: ctx.path });
+      results.push(pass("matches", ctx));
     } else {
       results.push(
         fail("matches", ctx, {
@@ -334,7 +315,7 @@ function evalMin(
     return typeMismatch("min", "number", value, ctx);
   }
   if (value >= expected) {
-    return { passed: true, assertion: "min", path: ctx.path };
+    return pass("min", ctx);
   }
   return fail("min", ctx, {
     expected: `>= ${expected}`,
@@ -351,7 +332,7 @@ function evalMax(
     return typeMismatch("max", "number", value, ctx);
   }
   if (value <= expected) {
-    return { passed: true, assertion: "max", path: ctx.path };
+    return pass("max", ctx);
   }
   return fail("max", ctx, {
     expected: `<= ${expected}`,
@@ -388,6 +369,7 @@ function evalEvery(
   for (let i = 0; i < value.length; i++) {
     const elementResults = evaluate(value[i], node, {
       path: [...ctx.path, `[${i}]`],
+      logger: ctx.logger,
     });
     const failures = elementResults.filter((r) => !r.passed);
     if (failures.length > 0) {
@@ -440,6 +422,7 @@ function evalNone(
   for (let i = 0; i < value.length; i++) {
     const elementResults = evaluate(value[i], node, {
       path: [...ctx.path, `[${i}]`],
+      logger: ctx.logger,
     });
     const failures = elementResults.filter((r) => !r.passed);
     if (failures.length === 0) {
@@ -502,7 +485,7 @@ function evalHasKey(
     return typeMismatch("has_key", "object", value, ctx);
   }
   if (Object.prototype.hasOwnProperty.call(value, key)) {
-    return { passed: true, assertion: "has_key", path: ctx.path };
+    return pass("has_key", ctx);
   }
   return fail("has_key", ctx, {
     expected: `key "${key}" exists`,
@@ -527,7 +510,7 @@ function evalHaving(
     const result = getNestedValue(value, dotPath);
     if (!result.found) {
       results.push(
-        fail("having", { path: [...ctx.path, dotPath] }, {
+        fail("having", { path: [...ctx.path, dotPath], logger: ctx.logger }, {
           expected: `path "${dotPath}" exists`,
           actual: "path not found",
         })
@@ -536,6 +519,7 @@ function evalHaving(
       results.push(
         ...evaluate(result.value, assertNode, {
           path: [...ctx.path, dotPath],
+          logger: ctx.logger,
         })
       );
     }
@@ -686,7 +670,7 @@ function evalScript(
       },
       reject: true,
     });
-    return { passed: true, assertion: "script", path: ctx.path };
+    return pass("script", ctx);
   } catch (err: unknown) {
     // execa errors have stderr/shortMessage; fall back to message
     const reason = extractErrorReason(err);
