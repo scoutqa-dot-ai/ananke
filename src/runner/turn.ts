@@ -1,8 +1,9 @@
 import type { ProtocolClient } from "../client/types.js";
 import type { TimestampedEvent } from "../client/events.js";
-import type { TurnData, ToolCall } from "../types/index.js";
+import type { TurnData, TurnTimings, ToolCall } from "../types/index.js";
 import type { Logger } from "../logger.js";
-import { truncateLine } from "./format.js";
+import { truncateLine, formatDuration } from "./format.js";
+import { SLOW_TTF_TEXT_THRESHOLD_MS } from "../constants.js";
 
 interface PendingToolCall {
   name: string;
@@ -17,7 +18,7 @@ export async function executeTurn(
   client: ProtocolClient,
   userMessage: string,
   turnIndex: number,
-  options?: { logger?: Logger }
+  options?: { logger?: Logger },
 ): Promise<TurnData> {
   const sendTs = Date.now();
   const events = client.sendMessage({ message: userMessage });
@@ -30,7 +31,7 @@ export async function executeTurn(
 export async function executeConnectTurn(
   client: ProtocolClient,
   turnIndex: number,
-  options?: { logger?: Logger }
+  options?: { logger?: Logger },
 ): Promise<TurnData> {
   if (!client.connect) {
     throw new Error("Client does not support connect operation");
@@ -53,7 +54,7 @@ export interface CollectOptions {
 export async function collectTurnData(
   events: AsyncGenerator<TimestampedEvent>,
   turnIndex: number,
-  options?: CollectOptions
+  options?: CollectOptions,
 ): Promise<TurnData> {
   const toolCalls: ToolCall[] = [];
   const pendingToolCalls = new Map<string, PendingToolCall>();
@@ -62,30 +63,61 @@ export async function collectTurnData(
   let endTs: number | null = null;
   let lastEventTs = options?.sendTs ?? Date.now();
   const logger = options?.logger;
+  const sendTs = options?.sendTs ?? Date.now();
+  const timings: TurnTimings = {
+    ttfEventMs: null,
+    ttfToolMs: null,
+    ttfTextMs: null,
+  };
 
   for await (const event of events) {
-    // Track first and last event timestamps
     const eventTs = event._ts;
     if (startTs === null) {
       startTs = eventTs;
+      timings.ttfEventMs = eventTs - sendTs;
     }
     endTs = eventTs;
 
+    // Track TTF for tool and text
+    if (timings.ttfToolMs === null && event.type === "TOOL_CALL_START") {
+      timings.ttfToolMs = eventTs - sendTs;
+    }
+    if (timings.ttfTextMs === null && event.type === "TEXT_MESSAGE_CONTENT") {
+      timings.ttfTextMs = eventTs - sendTs;
+      if (timings.ttfTextMs >= SLOW_TTF_TEXT_THRESHOLD_MS) {
+        logger?.warn(
+          `[turn] Slow time-to-first-text: ${formatDuration(timings.ttfTextMs)}`,
+        );
+      }
+    }
+
     // Trace logging with idle gap (only track idle between meaningful events)
     if (logger) {
-      const isActivityEvent = event.type.startsWith("TOOL_CALL_") || event.type === "TEXT_MESSAGE_CONTENT";
+      const isActivityEvent =
+        event.type.startsWith("TOOL_CALL_") ||
+        event.type === "TEXT_MESSAGE_CONTENT";
       const gap = eventTs - lastEventTs;
-      const idleSuffix = isActivityEvent && gap >= 1000 ? ` (idle ${(gap / 1000).toFixed(1)}s)` : "";
+      const idleSuffix =
+        isActivityEvent && gap >= 1000
+          ? ` (idle ${(gap / 1000).toFixed(1)}s)`
+          : "";
       if (isActivityEvent) {
         lastEventTs = eventTs;
       }
-      logger.trace(`[event] ${event.type}${formatEventDetail(event)}${idleSuffix}`);
+      logger.trace(
+        `[event] ${event.type}${formatEventDetail(event)}${idleSuffix}`,
+      );
     }
 
     handleEvent(event, toolCalls, pendingToolCalls, (text) => {
       assistantText += text;
     });
   }
+
+  const fmt = (ms: number | null) => (ms === null ? "-" : formatDuration(ms));
+  logger?.trace(
+    `[turn] Timings: event=${fmt(timings.ttfEventMs)} tool=${fmt(timings.ttfToolMs)} text=${fmt(timings.ttfTextMs)}`,
+  );
 
   // Fallback to current time if no events received
   const now = Date.now();
@@ -96,6 +128,7 @@ export async function collectTurnData(
     assistantText,
     startTs: startTs ?? now,
     endTs: endTs ?? now,
+    timings,
   };
 }
 
@@ -116,7 +149,7 @@ function handleEvent(
   event: TimestampedEvent,
   toolCalls: ToolCall[],
   pendingToolCalls: Map<string, PendingToolCall>,
-  onText: (text: string) => void
+  onText: (text: string) => void,
 ): void {
   switch (event.type) {
     case "TEXT_MESSAGE_CONTENT":

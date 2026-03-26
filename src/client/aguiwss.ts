@@ -6,6 +6,7 @@ import { convertToAGUIEvent } from "./events.js";
 import { DEFAULT_CLIENT_TIMEOUT_MS } from "../constants.js";
 import type { TimestampedEvent } from "./events.js";
 import type { Logger } from "../logger.js";
+import { truncateLine } from "../runner/format.js";
 
 // Assign WebSocket to globalThis for @stomp/stompjs
 Object.assign(globalThis, { WebSocket });
@@ -64,17 +65,12 @@ function isStompNoise(msg: string): boolean {
 }
 
 function sanitizeStompDebug(msg: string): string {
-  // Redact sensitive headers
+  // Redact sensitive headers then collapse + truncate
   const redacted = msg.replace(SENSITIVE_HEADER_RE, (match) => {
     const colon = match.indexOf(":");
     return `${match.slice(0, colon)}:[REDACTED]`;
   });
-  // Collapse to single line and truncate (STOMP dumps full frame bodies)
-  const escaped = redacted.replace(/\n/g, "\\n").replace(/\r/g, "\\r");
-  if (escaped.length > 80) {
-    return `${escaped.slice(0, 80)}... (${msg.length} chars)`;
-  }
-  return escaped;
+  return truncateLine(redacted);
 }
 
 /**

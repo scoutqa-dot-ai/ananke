@@ -8,6 +8,7 @@ const makeTurnData = (overrides: Partial<TurnData> = {}): TurnData => ({
   assistantText: "",
   startTs: 1000,
   endTs: 2000,
+  timings: { ttfEventMs: null, ttfToolMs: null, ttfTextMs: null },
   ...overrides,
 });
 
