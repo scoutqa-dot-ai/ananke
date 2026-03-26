@@ -57,6 +57,11 @@ const messageSchema = z.object({
 });
 
 const SENSITIVE_HEADER_RE = /^(Authorization|Cookie|X-Api-Key|Token):.*$/gim;
+const STOMP_NOISE_RE = /^>>>?\s*PING$|^<<<?\s*PONG$|ping\s*every\s*\d+ms|pong\s*every\s*\d+ms|using\s*runInterval|outgoing\s*ping\s*disposeInterval|Web Socket Opened|Received data|connected to server/i;
+
+function isStompNoise(msg: string): boolean {
+  return STOMP_NOISE_RE.test(msg.trim());
+}
 
 function sanitizeStompDebug(msg: string): string {
   // Redact sensitive headers
@@ -240,7 +245,11 @@ export class AGUIWSSClient {
         },
         connectHeaders: this.wsStompHeaders,
         reconnectDelay: 0,
-        debug: (msg) => this.logger?.trace(`[STOMP] ${sanitizeStompDebug(msg)}`),
+        debug: (msg) => {
+          if (!isStompNoise(msg)) {
+            this.logger?.trace(`[STOMP] ${sanitizeStompDebug(msg)}`);
+          }
+        },
       });
 
       client.onConnect = () => {
