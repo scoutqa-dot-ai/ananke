@@ -14,7 +14,7 @@ import type {
   TurnData,
 } from "../types/index.js";
 import { isUserTurn, isConnectTurn, isScriptTurn } from "../types/test.js";
-import { executeTurn, executeConnectTurn, collectTurnData } from "./turn.js";
+import { executeTurn, executeConnectTurn, collectTurnData, withPromptSent } from "./turn.js";
 import {
   executeScript,
   normalizeScriptConfig,
@@ -270,7 +270,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
         logger.debug(`    Message: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
 
         if (testRecordingDir) {
-          const events = createRecordingGenerator(client!.sendMessage({ message: userMessage }), testRecordingDir, i);
+          const events = createRecordingGenerator(withPromptSent(client!.sendMessage({ message: userMessage })), testRecordingDir, i);
           turnData = await collectTurnData(events, i, { logger });
         } else {
           turnData = await executeTurn(client!, userMessage, i, { logger });
@@ -282,7 +282,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
           throw new Error("Client does not support connect operation");
         }
         if (testRecordingDir) {
-          const events = createRecordingGenerator(client!.connect(), testRecordingDir, i);
+          const events = createRecordingGenerator(withPromptSent(client!.connect()), testRecordingDir, i);
           turnData = await collectTurnData(events, i, { logger });
         } else {
           turnData = await executeConnectTurn(client!, i, { logger });
@@ -292,7 +292,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
         const userMessage = interpolate(turn.user, variables);
         logger.debug(`  Turn ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
         if (testRecordingDir) {
-          const events = createRecordingGenerator(client!.sendMessage({ message: userMessage }), testRecordingDir, i);
+          const events = createRecordingGenerator(withPromptSent(client!.sendMessage({ message: userMessage })), testRecordingDir, i);
           turnData = await collectTurnData(events, i, { logger });
         } else {
           turnData = await executeTurn(client!, userMessage, i, { logger });

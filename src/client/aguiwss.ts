@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { convertToAGUIEvent } from "./events.js";
 import { DEFAULT_CLIENT_TIMEOUT_MS } from "../constants.js";
-import type { TimestampedEvent } from "./events.js";
+import type { AGUITimestampedEvent } from "./events.js";
 import type { Logger } from "../logger.js";
 import { truncateLine } from "../runner/format.js";
 
@@ -114,9 +114,9 @@ export class AGUIWSSClient {
 
   async *sendMessage(options: {
     message: string;
-  }): AsyncGenerator<TimestampedEvent> {
+  }): AsyncGenerator<AGUITimestampedEvent> {
     let processedEventCount = 0;
-    const eventQueue: TimestampedEvent[] = [];
+    const eventQueue: AGUITimestampedEvent[] = [];
     let done = false;
     let error: Error | undefined;
     let resolveWaiting: (() => void) | undefined;
@@ -155,7 +155,7 @@ export class AGUIWSSClient {
 
         const aguiEvent = convertToAGUIEvent(event);
         if (aguiEvent) {
-          eventQueue.push({ ...aguiEvent, _ts: Date.now() });
+          eventQueue.push({ ...aguiEvent, "ananke:ts": Date.now() });
 
           if (event.type === "RUN_FINISHED" || event.type === "RUN_ERROR") {
             done = true;
@@ -185,7 +185,7 @@ export class AGUIWSSClient {
         type: "RUN_ERROR",
         runId: "",
         message: msg,
-        _ts: Date.now(),
+        "ananke:ts": Date.now(),
       };
       return;
     }
@@ -211,7 +211,7 @@ export class AGUIWSSClient {
         type: "RUN_ERROR",
         runId: "",
         message: error.message,
-        _ts: Date.now(),
+        "ananke:ts": Date.now(),
       };
     }
   }

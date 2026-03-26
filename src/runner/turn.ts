@@ -1,5 +1,5 @@
 import type { ProtocolClient } from "../client/types.js";
-import type { TimestampedEvent } from "../client/events.js";
+import type { AGUITimestampedEvent, TimestampedEvent } from "../client/events.js";
 import type { TurnData, TurnTimings, ToolCall } from "../types/index.js";
 import type { Logger } from "../logger.js";
 import { truncateLine, formatDuration } from "./format.js";
@@ -12,6 +12,17 @@ interface PendingToolCall {
 }
 
 /**
+ * Prepend a synthetic ananke:prompt_sent event to an event stream.
+ * This records the send timestamp so TTF calculations work in both live and replay.
+ */
+export async function* withPromptSent(
+  events: AsyncGenerator<TimestampedEvent>,
+): AsyncGenerator<TimestampedEvent> {
+  yield { type: "ananke:prompt_sent", "ananke:ts": Date.now() };
+  yield* events;
+}
+
+/**
  * Execute a user message turn and collect data
  */
 export async function executeTurn(
@@ -20,9 +31,8 @@ export async function executeTurn(
   turnIndex: number,
   options?: { logger?: Logger },
 ): Promise<TurnData> {
-  const sendTs = Date.now();
-  const events = client.sendMessage({ message: userMessage });
-  return collectTurnData(events, turnIndex, { ...options, sendTs });
+  const events = withPromptSent(client.sendMessage({ message: userMessage }));
+  return collectTurnData(events, turnIndex, options);
 }
 
 /**
@@ -36,15 +46,12 @@ export async function executeConnectTurn(
   if (!client.connect) {
     throw new Error("Client does not support connect operation");
   }
-  const sendTs = Date.now();
-  const events = client.connect();
-  return collectTurnData(events, turnIndex, { ...options, sendTs });
+  const events = withPromptSent(client.connect());
+  return collectTurnData(events, turnIndex, options);
 }
 
 export interface CollectOptions {
   logger?: Logger;
-  /** Timestamp when the request was sent (for accurate idle tracking) */
-  sendTs?: number;
 }
 
 /**
@@ -61,29 +68,41 @@ export async function collectTurnData(
   let assistantText = "";
   let startTs: number | null = null;
   let endTs: number | null = null;
-  let lastEventTs = options?.sendTs ?? Date.now();
+  let lastEventTs: number | null = null;
   const logger = options?.logger;
-  const sendTs = options?.sendTs ?? Date.now();
   const timings: TurnTimings = {
     ttfEventMs: null,
     ttfToolMs: null,
     ttfTextMs: null,
   };
 
+  let promptSentTs: number | null = null;
+
   for await (const event of events) {
-    const eventTs = event._ts;
+    const eventTs = event["ananke:ts"];
+
+    // Use ananke:prompt_sent as the TTF baseline
+    if (event.type === "ananke:prompt_sent") {
+      promptSentTs = eventTs;
+      continue;
+    }
+
     if (startTs === null) {
       startTs = eventTs;
-      timings.ttfEventMs = eventTs - sendTs;
     }
     endTs = eventTs;
 
-    // Track TTF for tool and text
+    // Track TTF relative to prompt_sent timestamp
+    const baseline = promptSentTs ?? startTs;
+    const elapsed = eventTs - baseline;
+    if (timings.ttfEventMs === null) {
+      timings.ttfEventMs = elapsed;
+    }
     if (timings.ttfToolMs === null && event.type === "TOOL_CALL_START") {
-      timings.ttfToolMs = eventTs - sendTs;
+      timings.ttfToolMs = elapsed;
     }
     if (timings.ttfTextMs === null && event.type === "TEXT_MESSAGE_CONTENT") {
-      timings.ttfTextMs = eventTs - sendTs;
+      timings.ttfTextMs = elapsed;
       if (timings.ttfTextMs >= SLOW_TTF_TEXT_THRESHOLD_MS) {
         logger?.warn(
           `[turn] Slow time-to-first-text: ${formatDuration(timings.ttfTextMs)}`,
@@ -96,7 +115,7 @@ export async function collectTurnData(
       const isActivityEvent =
         event.type.startsWith("TOOL_CALL_") ||
         event.type === "TEXT_MESSAGE_CONTENT";
-      const gap = eventTs - lastEventTs;
+      const gap = lastEventTs !== null ? eventTs - lastEventTs : 0;
       const idleSuffix =
         isActivityEvent && gap >= 1000
           ? ` (idle ${(gap / 1000).toFixed(1)}s)`
@@ -132,7 +151,7 @@ export async function collectTurnData(
   };
 }
 
-function formatEventDetail(event: TimestampedEvent): string {
+function formatEventDetail(event: AGUITimestampedEvent): string {
   switch (event.type) {
     case "TOOL_CALL_START":
       return `: ${event.toolCallName}`;
@@ -146,7 +165,7 @@ function formatEventDetail(event: TimestampedEvent): string {
 }
 
 function handleEvent(
-  event: TimestampedEvent,
+  event: AGUITimestampedEvent,
   toolCalls: ToolCall[],
   pendingToolCalls: Map<string, PendingToolCall>,
   onText: (text: string) => void,
@@ -160,7 +179,7 @@ function handleEvent(
       pendingToolCalls.set(event.toolCallId, {
         name: event.toolCallName,
         argsBuffer: "",
-        startTs: event._ts, // Use event timestamp
+        startTs: event["ananke:ts"], // Use event timestamp
       });
       break;
 
@@ -193,7 +212,7 @@ function handleEvent(
           name: pending.name,
           args,
           result,
-          timestamp: event._ts, // Use event timestamp
+          timestamp: event["ananke:ts"], // Use event timestamp
         });
 
         pendingToolCalls.delete(event.toolCallId);

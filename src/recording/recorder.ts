@@ -8,7 +8,7 @@ import type { Variables } from "../config/interpolate.js";
  */
 interface RecordedEvent {
   event: TimestampedEvent;
-  // Timestamp is already in event._ts, but we store it for clarity
+  // Timestamp is already in event["ananke:ts"], but we store it for clarity
 }
 
 /**
@@ -111,7 +111,7 @@ async function* recordEvents(
   await writeFile(filePath, "");
 
   for await (const event of events) {
-    // Store event with its timestamp (already in _ts field)
+    // Store event with its timestamp (already in ananke:ts field)
     await appendFile(filePath, JSON.stringify(event) + "\n");
     yield event;
   }

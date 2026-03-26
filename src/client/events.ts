@@ -76,9 +76,24 @@ export type AGUIEvent =
 export type AGUIEventType = AGUIEvent["type"];
 
 /**
- * Event with timestamp added at arrival time
+ * AG-UI event with timestamp added at arrival time.
+ * Used by clients, recorder, and replayer.
  */
-export type TimestampedEvent = AGUIEvent & { _ts: number };
+export type AGUITimestampedEvent = AGUIEvent & { "ananke:ts": number };
+
+/**
+ * Ananke-specific synthetic event emitted when a prompt is sent.
+ * Used as the baseline for TTF calculations (works in both live and replay).
+ */
+export interface PromptSentEvent {
+  type: "ananke:prompt_sent";
+}
+
+/**
+ * Full event union including ananke-internal events.
+ * Used by the runner's collectTurnData.
+ */
+export type TimestampedEvent = (AGUIEvent | PromptSentEvent) & { "ananke:ts": number };
 
 
 /**

@@ -6,7 +6,7 @@ import {
 } from "@ag-ui/client";
 import { convertToAGUIEvent } from "./events.js";
 import { DEFAULT_CLIENT_TIMEOUT_MS, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_MS } from "../constants.js";
-import type { TimestampedEvent } from "./events.js";
+import type { AGUITimestampedEvent } from "./events.js";
 import type { SendMessageOptions } from "./types.js";
 import type { Logger } from "../logger.js";
 
@@ -65,7 +65,7 @@ export class AGUIClient {
    */
   async *sendMessage(
     options: SendMessageOptions
-  ): AsyncGenerator<TimestampedEvent> {
+  ): AsyncGenerator<AGUITimestampedEvent> {
     const input: RunAgentInput = {
       context: [],
       forwardedProps: this.forwardedProps,
@@ -82,7 +82,7 @@ export class AGUIClient {
   /**
    * Connect to existing thread without sending a message (agent/connect)
    */
-  async *connect(): AsyncGenerator<TimestampedEvent> {
+  async *connect(): AsyncGenerator<AGUITimestampedEvent> {
     const input: RunAgentInput = {
       context: [],
       forwardedProps: this.forwardedProps,
@@ -102,8 +102,8 @@ export class AGUIClient {
   private async *executeRequest(
     method: string,
     input: RunAgentInput
-  ): AsyncGenerator<TimestampedEvent> {
-    const events: TimestampedEvent[] = [];
+  ): AsyncGenerator<AGUITimestampedEvent> {
+    const events: AGUITimestampedEvent[] = [];
     let receivedMeaningfulEvents = false;
 
     const executeStream = async (attempt: number): Promise<void> => {
@@ -151,7 +151,7 @@ export class AGUIClient {
               const aguiEvent = convertToAGUIEvent(event);
               if (aguiEvent) {
                 // Add timestamp at event arrival time
-                events.push({ ...aguiEvent, _ts: Date.now() });
+                events.push({ ...aguiEvent, "ananke:ts": Date.now() });
               }
             },
             error: (err) => {
@@ -167,7 +167,7 @@ export class AGUIClient {
                 type: "RUN_ERROR",
                 runId: "",
                 message,
-                _ts: Date.now(),
+                "ananke:ts": Date.now(),
               });
               reject(err);
             },
@@ -198,7 +198,7 @@ export class AGUIClient {
             type: "RUN_ERROR",
             runId: "",
             message: msg,
-            _ts: Date.now(),
+            "ananke:ts": Date.now(),
           });
         }
       }
