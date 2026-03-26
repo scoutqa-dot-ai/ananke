@@ -2,7 +2,9 @@ import { Client as StompClient, IMessage } from "@stomp/stompjs";
 import WebSocket from "ws";
 import { z } from "zod";
 
-import type { AGUIEvent, TimestampedEvent } from "./events.js";
+import { convertToAGUIEvent } from "./events.js";
+import { DEFAULT_CLIENT_TIMEOUT_MS } from "../constants.js";
+import type { TimestampedEvent } from "./events.js";
 import type { Logger } from "../logger.js";
 
 // Assign WebSocket to globalThis for @stomp/stompjs
@@ -27,7 +29,6 @@ export interface AGUIWSSClientOptions {
   wsStompHeaders?: Record<string, string>;
 }
 
-const DEFAULT_TIMEOUT_MS = 120000;
 
 const eventSchema = z.object({
   type: z.string(),
@@ -98,7 +99,7 @@ export class AGUIWSSClient {
   constructor(options: AGUIWSSClientOptions) {
     this.endpoint = options.endpoint;
     this.agentId = options.agentId;
-    this.timeout_ms = options.timeout_ms ?? DEFAULT_TIMEOUT_MS;
+    this.timeout_ms = options.timeout_ms ?? DEFAULT_CLIENT_TIMEOUT_MS;
     this.headers = options.headers ?? {};
     this.logger = options.logger;
     this.state = options.state;
@@ -307,81 +308,3 @@ export class AGUIWSSClient {
   }
 }
 
-function convertToAGUIEvent(event: z.infer<typeof eventSchema>): AGUIEvent | null {
-  switch (event.type) {
-    case "RUN_STARTED":
-      return {
-        type: "RUN_STARTED",
-        runId: event.runId ?? "",
-        threadId: event.threadId,
-      };
-
-    case "TEXT_MESSAGE_START":
-      return {
-        type: "TEXT_MESSAGE_START",
-        messageId: event.messageId ?? "",
-        role: "assistant",
-      };
-
-    case "TEXT_MESSAGE_CONTENT":
-      return {
-        type: "TEXT_MESSAGE_CONTENT",
-        messageId: event.messageId ?? "",
-        delta: event.delta ?? "",
-      };
-
-    case "TEXT_MESSAGE_END":
-      return {
-        type: "TEXT_MESSAGE_END",
-        messageId: event.messageId ?? "",
-      };
-
-    case "TOOL_CALL_START":
-      return {
-        type: "TOOL_CALL_START",
-        toolCallId: event.toolCallId ?? "",
-        toolCallName: event.toolCallName ?? "",
-        parentMessageId: event.parentMessageId,
-      };
-
-    case "TOOL_CALL_ARGS":
-      return {
-        type: "TOOL_CALL_ARGS",
-        toolCallId: event.toolCallId ?? "",
-        delta: event.delta ?? "",
-      };
-
-    case "TOOL_CALL_END":
-      return {
-        type: "TOOL_CALL_END",
-        toolCallId: event.toolCallId ?? "",
-      };
-
-    case "TOOL_CALL_RESULT":
-      return {
-        type: "TOOL_CALL_RESULT",
-        toolCallId: event.toolCallId ?? "",
-        result:
-          typeof event.result === "string"
-            ? event.result
-            : JSON.stringify(event.result ?? ""),
-      };
-
-    case "RUN_ERROR":
-      return {
-        type: "RUN_ERROR",
-        runId: event.runId ?? "",
-        message: event.message ?? event.error ?? "Unknown error",
-        code: event.code,
-      };
-
-    case "RUN_FINISHED":
-      return {
-        type: "RUN_FINISHED",
-        runId: event.runId ?? "",
-      };
-
-    default:
-      return null;
-  }
-}

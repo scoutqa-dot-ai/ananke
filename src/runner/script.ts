@@ -1,6 +1,7 @@
 import { execa } from "execa";
 import type { Variables } from "../config/interpolate.js";
 import type { TurnData } from "../types/data.js";
+import { DEFAULT_SCRIPT_TIMEOUT_MS } from "../constants.js";
 import type { Logger } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -54,8 +55,6 @@ const VALID_ACTIONS_BY_LOCATION: Record<ScriptLocation, Set<ScriptAction>> = {
   assertion: new Set(["skip_assertion", "skip_test"]),
 };
 
-export const DEFAULT_TIMEOUT_MS = 10_000;
-export const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
 
 /**
  * Merge script output variables into a target variable map with override logging.
@@ -121,7 +120,7 @@ export async function executeScript(
   opts?: { logger?: Logger; extraEnv?: Record<string, string> }
 ): Promise<ScriptResult> {
   const { logger } = opts ?? {};
-  const timeout = config.timeout_ms ?? DEFAULT_TIMEOUT_MS;
+  const timeout = config.timeout_ms ?? DEFAULT_SCRIPT_TIMEOUT_MS;
   const anankeJson = JSON.stringify(ananke);
 
   logger?.debug(`[Script] Running: ${config.run} (location=${location}, timeout=${timeout}ms)`);

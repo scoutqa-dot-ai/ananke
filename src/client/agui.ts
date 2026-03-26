@@ -4,7 +4,10 @@ import {
   runHttpRequest,
   transformHttpEventStream,
 } from "@ag-ui/client";
-import type { AGUIEvent, TimestampedEvent } from "./events.js";
+import { convertToAGUIEvent } from "./events.js";
+import { DEFAULT_CLIENT_TIMEOUT_MS, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_MS } from "../constants.js";
+import type { TimestampedEvent } from "./events.js";
+import type { SendMessageOptions } from "./types.js";
 import type { Logger } from "../logger.js";
 
 export interface AGUIClientOptions {
@@ -21,13 +24,6 @@ export interface AGUIClientOptions {
   threadId?: string;
 }
 
-export interface SendMessageOptions {
-  message: string;
-}
-
-const DEFAULT_MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 1000;
-const DEFAULT_TIMEOUT_MS = 120000; // 2 minutes
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -52,7 +48,7 @@ export class AGUIClient {
     this.endpoint = options.endpoint;
     this.agentId = options.agentId ?? "";
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
-    this.timeout_ms = options.timeout_ms ?? DEFAULT_TIMEOUT_MS;
+    this.timeout_ms = options.timeout_ms ?? DEFAULT_CLIENT_TIMEOUT_MS;
     this.headers = options.headers ?? {};
     this.logger = options.logger;
     this.state = options.state;
@@ -188,7 +184,7 @@ export class AGUIClient {
           this.logger?.trace(
             `[AG-UI] No events received, retrying (${attempt}/${this.maxRetries})...`
           );
-          await sleep(RETRY_DELAY_MS);
+          await sleep(DEFAULT_RETRY_DELAY_MS);
           return executeStream(attempt + 1);
         }
       } catch (error) {
@@ -217,88 +213,3 @@ export class AGUIClient {
   }
 }
 
-/**
- * Convert BaseEvent from @ag-ui/client to our AGUIEvent type
- */
-function convertToAGUIEvent(event: {
-  type: string;
-  [key: string]: unknown;
-}): AGUIEvent | null {
-  switch (event.type) {
-    case "RUN_STARTED":
-      return {
-        type: "RUN_STARTED",
-        runId: String(event.runId ?? ""),
-        threadId: event.threadId as string | undefined,
-      };
-
-    case "TEXT_MESSAGE_START":
-      return {
-        type: "TEXT_MESSAGE_START",
-        messageId: String(event.messageId ?? ""),
-        role: "assistant",
-      };
-
-    case "TEXT_MESSAGE_CONTENT":
-      return {
-        type: "TEXT_MESSAGE_CONTENT",
-        messageId: String(event.messageId ?? ""),
-        delta: String(event.delta ?? ""),
-      };
-
-    case "TEXT_MESSAGE_END":
-      return {
-        type: "TEXT_MESSAGE_END",
-        messageId: String(event.messageId ?? ""),
-      };
-
-    case "TOOL_CALL_START":
-      return {
-        type: "TOOL_CALL_START",
-        toolCallId: String(event.toolCallId ?? ""),
-        toolCallName: String(event.toolCallName ?? ""),
-        parentMessageId: event.parentMessageId as string | undefined,
-      };
-
-    case "TOOL_CALL_ARGS":
-      return {
-        type: "TOOL_CALL_ARGS",
-        toolCallId: String(event.toolCallId ?? ""),
-        delta: String(event.delta ?? ""),
-      };
-
-    case "TOOL_CALL_END":
-      return {
-        type: "TOOL_CALL_END",
-        toolCallId: String(event.toolCallId ?? ""),
-      };
-
-    case "TOOL_CALL_RESULT":
-      return {
-        type: "TOOL_CALL_RESULT",
-        toolCallId: String(event.toolCallId ?? ""),
-        result:
-          typeof event.result === "string"
-            ? event.result
-            : JSON.stringify(event.result ?? ""),
-      };
-
-    case "RUN_ERROR":
-      return {
-        type: "RUN_ERROR",
-        runId: String(event.runId ?? ""),
-        message: String(event.message ?? "Unknown error"),
-        code: event.code as string | undefined,
-      };
-
-    case "RUN_FINISHED":
-      return {
-        type: "RUN_FINISHED",
-        runId: String(event.runId ?? ""),
-      };
-
-    default:
-      // Unknown event type, skip
-      return null;
-  }
-}
