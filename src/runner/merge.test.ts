@@ -128,12 +128,12 @@ describe("mergeAssertBlocks", () => {
   describe("s9 duplication trace", () => {
     it("does not duplicate named assertion keys across levels", () => {
       const test = { fast_test: { ms: 300000 } } as any;
-      const turn = {
+      const step = {
         calls_agent: { agent: "stability_analyzer_agent" },
         fast_turn: { ms: 120000 },
       } as any;
 
-      const merged = mergeAssertBlocks(undefined, test, turn);
+      const merged = mergeAssertBlocks(undefined, test, step);
       // Should have 3 distinct keys, no duplication
       const keys = Object.keys(merged);
       expect(keys).toContain("calls_agent");
@@ -154,12 +154,12 @@ describe("mergeAssertBlocks", () => {
       };
 
       const test = { fast_test: { ms: 300000 } } as any;
-      const turn = {
+      const step = {
         calls_agent: { agent: "stability_analyzer_agent" },
         fast_turn: { ms: 120000 },
       } as any;
 
-      const merged = mergeAssertBlocks(undefined, test, turn);
+      const merged = mergeAssertBlocks(undefined, test, step);
       const resolved = resolveAssertBlock(merged, named);
 
       const turnData = {

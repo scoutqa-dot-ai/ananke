@@ -100,7 +100,7 @@ export const runCommand = new Command('run')
       try {
         const { test } = loadTestFile(filePath);
         tests.push({ test, filePath });
-        logger.debug(`  ✓ ${filePath} (${test.turns.length} turns)`);
+        logger.debug(`  ✓ ${filePath} (${test.steps.length} steps)`);
       } catch (err) {
         hasErrors = true;
         logError(pc.red('  ✗'), filePath);

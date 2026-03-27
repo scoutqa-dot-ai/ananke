@@ -1,17 +1,29 @@
 import { describe, it, expect } from "vitest";
 import {
   TestFileSchema,
-  isUserTurn,
-  isConnectTurn,
-  isScriptTurn,
+  isUserStep,
+  isConnectStep,
+  isScriptStep,
 } from "./test.js";
 
 describe("TestFileSchema", () => {
-  it("accepts script turn with short form", () => {
+  it("accepts script step with short form (no type)", () => {
     const input = {
       version: "1.0",
       name: "script test",
-      turns: [
+      steps: [
+        { script: "scripts/gen.sh" },
+      ],
+    };
+    const result = TestFileSchema.safeParse(input);
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts script step with explicit type", () => {
+    const input = {
+      version: "1.0",
+      name: "script test",
+      steps: [
         { type: "script", script: "scripts/gen.sh" },
       ],
     };
@@ -19,19 +31,17 @@ describe("TestFileSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("accepts script turn with long form", () => {
+  it("accepts script step with long form", () => {
     const input = {
       version: "1.0",
       name: "script test",
-      turns: [
+      steps: [
         {
-          type: "script",
           script: {
             run: "scripts/gen.sh",
             timeout_ms: 5000,
             env: { KEY: "val" },
           },
-          assert: { text: { matches: "hello" } },
         },
       ],
     };
@@ -39,25 +49,41 @@ describe("TestFileSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("accepts mixed turn types", () => {
+  it("rejects script step with assert (script steps don't take assertions)", () => {
+    const input = {
+      version: "1.0",
+      name: "script test",
+      steps: [
+        {
+          script: "scripts/gen.sh",
+          assert: { text: { matches: "hello" } },
+        },
+      ],
+    };
+    const result = TestFileSchema.safeParse(input);
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts mixed step types", () => {
     const input = {
       version: "1.0",
       name: "mixed test",
-      turns: [
+      steps: [
+        { script: "scripts/setup.sh" },
         { user: "Hello" },
-        { type: "script", script: "scripts/gen.sh" },
-        { user: "Follow up" },
+        { script: "scripts/gen.sh" },
+        { user: "Follow up ${VAR.MESSAGE}" },
       ],
     };
     const result = TestFileSchema.safeParse(input);
     expect(result.success).toBe(true);
   });
 
-  it("rejects script turn without script field", () => {
+  it("rejects script step without script field", () => {
     const input = {
       version: "1.0",
       name: "bad test",
-      turns: [
+      steps: [
         { type: "script" },
       ],
     };
@@ -67,19 +93,20 @@ describe("TestFileSchema", () => {
 });
 
 describe("type guards", () => {
-  it("isUserTurn identifies user turns", () => {
-    expect(isUserTurn({ user: "hello" } as any)).toBe(true);
-    expect(isUserTurn({ type: "script", script: "x" } as any)).toBe(false);
+  it("isUserStep identifies user steps", () => {
+    expect(isUserStep({ user: "hello" } as any)).toBe(true);
+    expect(isUserStep({ type: "script", script: "x" } as any)).toBe(false);
   });
 
-  it("isConnectTurn identifies connect turns", () => {
-    expect(isConnectTurn({ type: "agui:connect" } as any)).toBe(true);
-    expect(isConnectTurn({ user: "hello" } as any)).toBe(false);
+  it("isConnectStep identifies connect steps", () => {
+    expect(isConnectStep({ type: "agui:connect" } as any)).toBe(true);
+    expect(isConnectStep({ user: "hello" } as any)).toBe(false);
   });
 
-  it("isScriptTurn identifies script turns", () => {
-    expect(isScriptTurn({ type: "script", script: "x" } as any)).toBe(true);
-    expect(isScriptTurn({ user: "hello" } as any)).toBe(false);
-    expect(isScriptTurn({ type: "agui:connect" } as any)).toBe(false);
+  it("isScriptStep identifies script steps", () => {
+    expect(isScriptStep({ script: "x" } as any)).toBe(true);
+    expect(isScriptStep({ type: "script", script: "x" } as any)).toBe(true);
+    expect(isScriptStep({ user: "hello" } as any)).toBe(false);
+    expect(isScriptStep({ type: "agui:connect" } as any)).toBe(false);
   });
 });

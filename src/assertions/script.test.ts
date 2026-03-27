@@ -79,24 +79,12 @@ describe("assertion script — unified contract", () => {
     expect(variables.EXISTING).toBe("old");
   });
 
-  it("skip_assertion results in vacuous pass", async () => {
+  it("ignores unknown fields like action in stdout", async () => {
     const turnData = makeTurnData({ assistantText: "hello" });
     const result = await evaluateTurnAssertions(turnData, {
-      script: `echo '{"action": "skip_assertion"}'`,
+      script: `echo '{"action": "skip_test", "reason": "whatever"}'`,
     } as any);
     expect(result.passed).toBe(true);
-    const scriptResult = result.results.find((r) => r.assertion?.includes("skip"));
-    expect(scriptResult).toBeDefined();
-  });
-
-  it("skip_test produces a special result with details marker", async () => {
-    const turnData = makeTurnData({ assistantText: "hello" });
-    const result = await evaluateTurnAssertions(turnData, {
-      script: `echo '{"action": "skip_test"}'`,
-    } as any);
-    expect(result.passed).toBe(true);
-    const skipResult = result.results.find((r) => r.details === "skip_test");
-    expect(skipResult).toBeDefined();
   });
 
   it("fails on non-JSON stdout", async () => {

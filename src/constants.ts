@@ -2,7 +2,7 @@
 // Timeouts & retry defaults (single source of truth)
 // ---------------------------------------------------------------------------
 
-/** Script assertion / script turn timeout */
+/** Script assertion / script step timeout */
 export const DEFAULT_SCRIPT_TIMEOUT_MS = 300_000;
 
 /** AG-UI HTTP / WebSocket client timeout */

@@ -33,7 +33,7 @@ Events are organized by test file path and turn:
 recordings/
   tests/
     v0-login-form-app.test.yaml/
-      hook-0.json
+      script-step-0.json
       turn-0.jsonl
       turn-1.jsonl
     other/
@@ -42,10 +42,10 @@ recordings/
 ```
 
 - Turn files contain AG-UI events in JSONL format (one event per line)
-- Hook files store output variables as JSON
+- Script step files store output variables as JSON
 
 ## Notes
 
 - `--record` and `--replay` are mutually exclusive
-- Hooks are skipped during replay (events already recorded)
+- Script steps are re-executed during replay (to restore variables); only agent responses come from recordings
 - Test file path is used as directory structure (mirrors source layout)

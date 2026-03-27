@@ -15,7 +15,7 @@ export function interpolate(template: string, vars: Variables): string {
     // prefix === "VAR"
     const value = vars[name];
     if (value === undefined) {
-      throw new Error(`Variable "${name}" is not defined (referenced as \${VAR.${name}}). Did you forget a hook that sets it?`);
+      throw new Error(`Variable "${name}" is not defined (referenced as \${VAR.${name}}). Did you forget a script step that sets it?`);
     }
     return value;
   });

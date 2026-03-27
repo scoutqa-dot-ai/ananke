@@ -3,7 +3,7 @@ import type { ConfigAssertBlock } from "../types/config.js";
 import { SELECTOR_KEYS } from "../assertions/selectors.js";
 
 /**
- * Merge assertion blocks from target -> test -> turn.
+ * Merge assertion blocks from target -> test -> step.
  *
  * In v2, assert blocks are trees. Merging strategy:
  * - For each selector key, if multiple levels define it, wrap them in an implicit AND.
@@ -13,9 +13,9 @@ import { SELECTOR_KEYS } from "../assertions/selectors.js";
 export function mergeAssertBlocks(
   target: ConfigAssertBlock | undefined,
   test: AssertBlock | undefined,
-  turn: AssertBlock | undefined
+  step: AssertBlock | undefined
 ): AssertBlock {
-  const levels = [target, test, turn].filter(
+  const levels = [target, test, step].filter(
     (l): l is AssertBlock => l !== undefined && Object.keys(l).length > 0
   );
 

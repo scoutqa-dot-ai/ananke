@@ -95,7 +95,7 @@ export type AssertBlockInput = {
   or?: AssertBlockInput[];
   and?: AssertBlockInput[];
   not?: AssertBlockInput;
-  // Script assertion at top level (operates on full turn context)
+  // Script assertion at top level (operates on full step context)
   script?: string | { run: string; timeout_ms?: number; env?: Record<string, string> };
   // Named assertions (arbitrary keys resolved at evaluation time)
   [key: string]: unknown;
@@ -117,63 +117,54 @@ const AssertBlockSchema: z.ZodType<AssertBlockInput> = z.lazy(() =>
 export { AssertBlockSchema, AssertionNodeSchema };
 
 // ---------------------------------------------------------------------------
-// Test file structure
+// Test file structure — steps replace turns + hooks
 // ---------------------------------------------------------------------------
 
-const HookSchema = z.object({
-  cmd: z.array(z.string()),
-  timeout_ms: z.number().optional(),
-  env: z.record(z.string()).optional(),
-}).strict();
-
-// User message turn
-const UserTurnSchema = z.object({
+// User message step — sends a message to the agent
+const UserStepSchema = z.object({
   type: z.literal("user").optional(),
   user: z.string(),
   assert: AssertBlockSchema.optional(),
 }).strict();
 
-// AG-UI connect turn (connect to existing thread without sending message)
-const ConnectTurnSchema = z.object({
+// AG-UI connect step (connect to existing thread without sending message)
+const ConnectStepSchema = z.object({
   type: z.literal("agui:connect"),
   assert: AssertBlockSchema.optional(),
 }).strict();
 
-// Script turn — dynamically generates user message via a script
-const ScriptTurnSchema = z.object({
-  type: z.literal("script"),
+// Script step — runs a script to set variables (no message sent to agent)
+const ScriptStepSchema = z.object({
+  type: z.literal("script").optional(),
   script: ScriptSchema,
-  assert: AssertBlockSchema.optional(),
 }).strict();
 
-const TurnSchema = z.union([UserTurnSchema, ConnectTurnSchema, ScriptTurnSchema]);
+const StepSchema = z.union([UserStepSchema, ConnectStepSchema, ScriptStepSchema]);
 
 export const TestFileSchema = z.object({
   version: z.string(),
   name: z.string(),
-  hooks: z.array(HookSchema).optional(),
-  turns: z.array(TurnSchema).min(1),
+  steps: z.array(StepSchema).min(1),
   assert: AssertBlockSchema.optional(),
 }).strict();
 
 export type AssertBlock = z.infer<typeof AssertBlockSchema>;
 export type AssertionNode = z.infer<typeof AssertionNodeSchema>;
 export type TestFile = z.infer<typeof TestFileSchema>;
-export type Turn = z.infer<typeof TurnSchema>;
-export type UserTurn = z.infer<typeof UserTurnSchema>;
-export type ConnectTurn = z.infer<typeof ConnectTurnSchema>;
-export type ScriptTurn = z.infer<typeof ScriptTurnSchema>;
-export type Hook = z.infer<typeof HookSchema>;
+export type Step = z.infer<typeof StepSchema>;
+export type UserStep = z.infer<typeof UserStepSchema>;
+export type ConnectStep = z.infer<typeof ConnectStepSchema>;
+export type ScriptStep = z.infer<typeof ScriptStepSchema>;
 
 // Type guards
-export function isUserTurn(turn: Turn): turn is UserTurn {
-  return "user" in turn;
+export function isUserStep(step: Step): step is UserStep {
+  return "user" in step;
 }
 
-export function isConnectTurn(turn: Turn): turn is ConnectTurn {
-  return turn.type === "agui:connect";
+export function isConnectStep(step: Step): step is ConnectStep {
+  return step.type === "agui:connect";
 }
 
-export function isScriptTurn(turn: Turn): turn is ScriptTurn {
-  return "type" in turn && turn.type === "script";
+export function isScriptStep(step: Step): step is ScriptStep {
+  return "script" in step;
 }

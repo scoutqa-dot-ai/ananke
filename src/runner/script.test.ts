@@ -50,7 +50,7 @@ describe("executeScript", () => {
     it("executes successfully and returns empty output", async () => {
       const config: ScriptConfig = { run: "true" };
       const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke, "hook");
+      const result = await executeScript(config, ananke);
       expect(result.exitCode).toBe(0);
       expect(result.output.variables).toEqual({});
     });
@@ -58,14 +58,14 @@ describe("executeScript", () => {
     it("captures non-zero exit code", async () => {
       const config: ScriptConfig = { run: "false" };
       const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke, "hook");
+      const result = await executeScript(config, ananke);
       expect(result.exitCode).not.toBe(0);
     });
 
     it("captures stderr on failure", async () => {
       const config: ScriptConfig = { run: "echo 'oops' >&2 && exit 1" };
       const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke, "hook");
+      const result = await executeScript(config, ananke);
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("oops");
     });
@@ -73,14 +73,14 @@ describe("executeScript", () => {
     it("passes ANANKE env var", async () => {
       const config: ScriptConfig = { run: 'echo "$ANANKE" | grep -q "test_val" && echo "{}"' };
       const ananke = buildAnankeInput({ value: "test_val" });
-      const result = await executeScript(config, ananke, "assertion");
+      const result = await executeScript(config, ananke);
       expect(result.exitCode).toBe(0);
     });
 
     it("passes ANANKE via stdin", async () => {
       const config: ScriptConfig = { run: 'cat | grep -q "stdin_val" && echo "{}"' };
       const ananke = buildAnankeInput({ value: "stdin_val" });
-      const result = await executeScript(config, ananke, "assertion");
+      const result = await executeScript(config, ananke);
       expect(result.exitCode).toBe(0);
     });
 
@@ -90,14 +90,14 @@ describe("executeScript", () => {
         env: { MY_KEY: "my_value" },
       };
       const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke, "hook");
+      const result = await executeScript(config, ananke);
       expect(result.exitCode).toBe(0);
     });
 
     it("passes extra env vars", async () => {
       const config: ScriptConfig = { run: 'test "$EXTRA" = "val" && echo "{}"' };
       const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke, "hook", {
+      const result = await executeScript(config, ananke, {
         extraEnv: { EXTRA: "val" },
       });
       expect(result.exitCode).toBe(0);
@@ -112,7 +112,7 @@ describe("executeScript", () => {
         args: ['{"variables": {"KEY": "val"}}'],
       };
       const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke, "hook");
+      const result = await executeScript(config, ananke);
       expect(result.exitCode).toBe(0);
       expect(result.output.variables).toEqual({ KEY: "val" });
     });
@@ -124,7 +124,7 @@ describe("executeScript", () => {
         run: `echo '{"variables": {"TOKEN": "abc", "ID": "123"}}'`,
       };
       const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke, "hook");
+      const result = await executeScript(config, ananke);
       expect(result.exitCode).toBe(0);
       expect(result.output.variables).toEqual({ TOKEN: "abc", ID: "123" });
     });
@@ -134,7 +134,7 @@ describe("executeScript", () => {
         run: `echo '{"message": "Use option A"}'`,
       };
       const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke, "turn");
+      const result = await executeScript(config, ananke);
       expect(result.output.message).toBe("Use option A");
     });
 
@@ -143,7 +143,7 @@ describe("executeScript", () => {
         run: `echo '{"reason": "User verified"}'`,
       };
       const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke, "assertion");
+      const result = await executeScript(config, ananke);
       expect(result.output.reason).toBe("User verified");
     });
 
@@ -152,14 +152,14 @@ describe("executeScript", () => {
         run: `echo '{"variables": {"NUM": 42, "BOOL": true}}'`,
       };
       const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke, "hook");
+      const result = await executeScript(config, ananke);
       expect(result.output.variables).toEqual({ NUM: "42", BOOL: "true" });
     });
 
     it("returns failure on non-JSON stdout with exit 0", async () => {
       const config: ScriptConfig = { run: "echo 'not json'" };
       const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke, "hook");
+      const result = await executeScript(config, ananke);
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("not valid JSON");
     });
@@ -167,7 +167,7 @@ describe("executeScript", () => {
     it("returns failure on array stdout", async () => {
       const config: ScriptConfig = { run: `echo '[1,2,3]'` };
       const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke, "hook");
+      const result = await executeScript(config, ananke);
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("must be a JSON object");
     });
@@ -175,65 +175,19 @@ describe("executeScript", () => {
     it("handles empty stdout as empty output", async () => {
       const config: ScriptConfig = { run: "true" };
       const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke, "hook");
+      const result = await executeScript(config, ananke);
       expect(result.output.variables).toEqual({});
       expect(result.output.message).toBeUndefined();
     });
-  });
 
-  describe("action field validation", () => {
-    it("accepts skip_hook for hook location", async () => {
-      const config: ScriptConfig = { run: `echo '{"action": "skip_hook"}'` };
+    it("ignores unknown fields in stdout JSON", async () => {
+      const config: ScriptConfig = {
+        run: `echo '{"variables": {"A": "1"}, "action": "skip_test", "extra": true}'`,
+      };
       const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke, "hook");
-      expect(result.output.action).toBe("skip_hook");
-    });
-
-    it("accepts skip_turn for turn location", async () => {
-      const config: ScriptConfig = { run: `echo '{"action": "skip_turn"}'` };
-      const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke, "turn");
-      expect(result.output.action).toBe("skip_turn");
-    });
-
-    it("accepts skip_assertion for assertion location", async () => {
-      const config: ScriptConfig = { run: `echo '{"action": "skip_assertion"}'` };
-      const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke, "assertion");
-      expect(result.output.action).toBe("skip_assertion");
-    });
-
-    it("accepts skip_test for any location", async () => {
-      for (const location of ["hook", "turn", "assertion"] as const) {
-        const config: ScriptConfig = { run: `echo '{"action": "skip_test"}'` };
-        const ananke = buildAnankeInput({});
-        const result = await executeScript(config, ananke, location);
-        expect(result.output.action).toBe("skip_test");
-      }
-    });
-
-    it("returns failure for skip_turn in hook location", async () => {
-      const config: ScriptConfig = { run: `echo '{"action": "skip_turn"}'` };
-      const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke, "hook");
-      expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain('Invalid action "skip_turn" for hook');
-    });
-
-    it("returns failure for skip_hook in turn location", async () => {
-      const config: ScriptConfig = { run: `echo '{"action": "skip_hook"}'` };
-      const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke, "turn");
-      expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain('Invalid action "skip_hook" for turn');
-    });
-
-    it("returns failure for skip_assertion in hook location", async () => {
-      const config: ScriptConfig = { run: `echo '{"action": "skip_assertion"}'` };
-      const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke, "hook");
-      expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain('Invalid action "skip_assertion" for hook');
+      const result = await executeScript(config, ananke);
+      expect(result.exitCode).toBe(0);
+      expect(result.output.variables).toEqual({ A: "1" });
     });
   });
 
@@ -241,7 +195,7 @@ describe("executeScript", () => {
     it("returns non-zero exit with clear message on timeout", async () => {
       const config: ScriptConfig = { run: "sleep 10", timeout_ms: 100 };
       const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke, "hook");
+      const result = await executeScript(config, ananke);
       expect(result.exitCode).not.toBe(0);
       expect(result.stderr).toContain("timed out after 100ms");
       expect(result.stderr).toContain("sleep 10");
@@ -254,7 +208,7 @@ describe("executeScript", () => {
         run: `echo '{"message": "Hello", "variables": {"ID": "42"}, "reason": "all good"}'`,
       };
       const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke, "turn");
+      const result = await executeScript(config, ananke);
       expect(result.output.message).toBe("Hello");
       expect(result.output.variables).toEqual({ ID: "42" });
       expect(result.output.reason).toBe("all good");

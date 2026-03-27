@@ -5,8 +5,7 @@ import type { Variables } from "../config/interpolate.js";
 import {
   getTestRecordingDir,
   getTurnFilePath,
-  getHookFilePath,
-  getScriptTurnFilePath,
+  getScriptStepFilePath,
 } from "./recorder.js";
 
 /**
@@ -31,34 +30,15 @@ export function hasTurnRecording(
 }
 
 /**
- * Load hook output variables from recording
+ * Load script step output from recording
  */
-export async function loadHookOutput(
+export async function loadScriptStepOutput(
   baseDir: string,
   testFilePath: string,
-  hookIndex: number
-): Promise<Variables | null> {
+  stepIndex: number
+): Promise<{ variables: Variables; skipped?: boolean } | null> {
   const testDir = getTestRecordingDir(baseDir, testFilePath);
-  const filePath = getHookFilePath(testDir, hookIndex);
-
-  if (!existsSync(filePath)) {
-    return null;
-  }
-
-  const content = await readFile(filePath, "utf-8");
-  return JSON.parse(content) as Variables;
-}
-
-/**
- * Load script turn output from recording
- */
-export async function loadScriptTurnOutput(
-  baseDir: string,
-  testFilePath: string,
-  turnIndex: number
-): Promise<{ variables: Variables; message?: string; action?: string } | null> {
-  const testDir = getTestRecordingDir(baseDir, testFilePath);
-  const filePath = getScriptTurnFilePath(testDir, turnIndex);
+  const filePath = getScriptStepFilePath(testDir, stepIndex);
 
   if (!existsSync(filePath)) {
     return null;

@@ -1,7 +1,6 @@
 import { relative } from "node:path";
 import { createClient } from "../client/index.js";
 import type { ProtocolClient } from "../client/types.js";
-import { executeHook } from "../hooks/index.js";
 import {
   interpolate,
   interpolateObject,
@@ -13,7 +12,7 @@ import type {
   TestData,
   TurnData,
 } from "../types/index.js";
-import { isUserTurn, isConnectTurn, isScriptTurn } from "../types/test.js";
+import { isUserStep, isConnectStep, isScriptStep } from "../types/test.js";
 import { executeTurn, executeConnectTurn, collectTurnData, withPromptSent } from "./turn.js";
 import {
   executeScript,
@@ -34,11 +33,9 @@ import {
 import {
   getTestRecordingDir,
   createRecordingGenerator,
-  recordHookOutput,
-  recordScriptTurnOutput,
+  recordScriptStepOutput,
   replayEvents,
-  loadHookOutput,
-  loadScriptTurnOutput,
+  loadScriptStepOutput,
 } from "../recording/index.js";
 import type { Logger } from "../logger.js";
 
@@ -90,31 +87,64 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
     logger.trace(`[Record] Saving to: ${testRecordingDir}`);
   }
 
-  // Execute hooks and collect variables
-  if (test.hooks && test.hooks.length > 0) {
-    if (replayDir) {
-      // Replay mode: load hook outputs from files
-      logger.debug('  Loading hooks from recording...');
-      for (let i = 0; i < test.hooks.length; i++) {
-        const hookVars = await loadHookOutput(replayDir, relativeTestPath, i);
-        if (hookVars) {
-          mergeVariables(variables, hookVars, `hook ${i + 1} (replay)`, logger);
-        }
-      }
-      const varKeys = Object.keys(variables);
-      if (varKeys.length > 0) {
-        logger.debug(`  Variables: ${varKeys.join(', ')}`);
-      }
-    } else {
-      // Normal/record mode: execute hooks
-      logger.debug('  Executing hooks...');
-      try {
-        for (let i = 0; i < test.hooks.length; i++) {
-          const result = await executeHook(test.hooks[i], { currentVars: variables, logger });
+  // Interpolate config with variables will happen after script steps set vars
+  // but we need it before creating the client. We'll re-interpolate as needed.
+  let interpolatedConfig = interpolateObject(
+    excludeAssertions(config),
+    variables
+  ) as ProjectConfig;
 
-          // Handle skip actions
-          if (result.action === 'skip_test') {
-            logger.debug('  Hook requested skip_test');
+  // Create client (only needed for non-replay mode, deferred until first agent step)
+  let client: ProtocolClient | undefined;
+
+  // Track turn index separately (only agent-facing steps increment it)
+  let turnIndex = 0;
+
+  // Execute steps
+  for (let i = 0; i < test.steps.length; i++) {
+    const step = test.steps[i];
+
+    try {
+      if (isScriptStep(step)) {
+        // Script step — run script, set variables, no message to agent
+        logger.debug(`  Step ${i + 1}: [script]`);
+
+        if (testReplayDir) {
+          // Replay mode: load script output from recording
+          const scriptOutput = await loadScriptStepOutput(replayDir!, relativeTestPath, i);
+          if (scriptOutput) {
+            if (scriptOutput.skipped) {
+              logger.debug("  Script step skipped test (replay)");
+              return {
+                testName: test.name,
+                passed: true,
+                skipped: true,
+                testData: buildTestData(turns, startTs),
+                failures: [],
+              };
+            }
+            mergeVariables(variables, scriptOutput.variables ?? {}, "script step (replay)", logger);
+          }
+        } else {
+          // Normal/record mode: execute script
+          const scriptConfig = normalizeScriptConfig(step.script);
+          const ananke = buildAnankeInput({
+            turns,
+            variables,
+            turnIndex: null,
+          });
+
+          const scriptResult = await executeScript(scriptConfig, ananke, { logger });
+
+          if (scriptResult.exitCode !== 0) {
+            // Non-zero exit = skip test (precondition not met)
+            logger.debug(`  Script step skipped test: ${scriptResult.stderr}`);
+            if (testRecordingDir) {
+              await recordScriptStepOutput(testRecordingDir, i, {
+                variables: {},
+                skipped: true,
+              });
+            }
             return {
               testName: test.name,
               passed: true,
@@ -124,182 +154,74 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
             };
           }
 
-          if (result.action === 'skip_hook') {
-            logger.debug(`  Hook ${i + 1} skipped`);
-            continue;
-          }
+          const { output } = scriptResult;
 
-          mergeVariables(variables, result.variables, `hook ${i + 1}`, logger);
+          // Merge variables
+          mergeVariables(variables, output.variables, "script step", logger);
 
-          // Record hook output if recording
+          // Record script step output
           if (testRecordingDir) {
-            await recordHookOutput(testRecordingDir, i, result.variables);
+            await recordScriptStepOutput(testRecordingDir, i, {
+              variables: output.variables,
+            });
           }
         }
+
         const varKeys = Object.keys(variables);
         if (varKeys.length > 0) {
           logger.debug(`  Variables: ${varKeys.join(', ')}`);
         }
-      } catch (err) {
-        return {
-          testName: test.name,
-          passed: false,
-          testData: buildTestData(turns, startTs),
-          error: `Hook failed: ${(err as Error).message}`,
-          failures: [`Hook failed: ${(err as Error).message}`],
-        };
+
+        // Re-interpolate config after new variables
+        interpolatedConfig = interpolateObject(
+          excludeAssertions(config),
+          variables
+        ) as ProjectConfig;
+
+        continue; // Script steps don't produce TurnData
       }
-    }
-  }
 
-  // Interpolate config with variables (exclude assertions — they contain
-  // ${param} templates resolved later by the assertion resolver, not here)
-  const { assertions: _skipAssertions, ...configWithoutAssertions } = config as Record<string, unknown>;
-  const interpolatedConfig = interpolateObject(configWithoutAssertions, variables) as ProjectConfig;
+      // Agent-facing steps below — ensure client exists
+      if (!client && !testReplayDir) {
+        client = createClient(interpolatedConfig, { logger });
+      }
 
-  // Create client (only needed for non-replay mode)
-  const client: ProtocolClient | undefined = testReplayDir
-    ? undefined
-    : createClient(interpolatedConfig, { logger });
-
-  // Execute turns
-  for (let i = 0; i < test.turns.length; i++) {
-    const turn = test.turns[i];
-
-    try {
       let turnData: TurnData;
 
       if (testReplayDir) {
-        // Replay mode: load events from file
-        if (isScriptTurn(turn)) {
-          // Restore script turn output (variables, action) from recording
-          logger.debug(`  Turn ${i + 1}: [script] (replay)`);
-          const scriptOutput = await loadScriptTurnOutput(replayDir!, relativeTestPath, i);
-          if (scriptOutput) {
-            if (scriptOutput.action === "skip_test") {
-              return {
-                testName: test.name,
-                passed: true,
-                skipped: true,
-                testData: buildTestData(turns, startTs),
-                failures: [],
-              };
-            }
-            if (scriptOutput.action === "skip_turn") {
-              mergeVariables(variables, scriptOutput.variables ?? {}, "script turn (replay)", logger);
-              continue;
-            }
-            mergeVariables(variables, scriptOutput.variables ?? {}, "script turn (replay)", logger);
-          }
-        } else if (isConnectTurn(turn)) {
-          logger.debug(`  Turn ${i + 1}: [connect] (replay)`);
-        } else if (isUserTurn(turn)) {
-          const userMessage = interpolate(turn.user, variables);
-          logger.debug(`  Turn ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}" (replay)`);
+        // Replay mode
+        if (isConnectStep(step)) {
+          logger.debug(`  Step ${i + 1}: [connect] (replay)`);
+        } else if (isUserStep(step)) {
+          const userMessage = interpolate(step.user, variables);
+          logger.debug(`  Step ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}" (replay)`);
         }
-        const events = replayEvents(replayDir!, relativeTestPath, i);
-        turnData = await collectTurnData(events, i, { logger });
-      } else if (isScriptTurn(turn)) {
-        // Script turn — execute script to get message
-        logger.debug(`  Turn ${i + 1}: [script]`);
-        const scriptConfig = normalizeScriptConfig(turn.script);
-        const ananke = buildAnankeInput({
-          turns,
-          variables,
-          turnIndex: i,
-        });
-
-        const scriptResult = await executeScript(scriptConfig, ananke, "turn", { logger });
-
-        if (scriptResult.exitCode !== 0) {
-          throw new Error(`Script turn failed: ${scriptResult.stderr}`);
-        }
-
-        const { output } = scriptResult;
-
-        // Handle skip actions
-        if (output.action === "skip_test") {
-          logger.debug("  Script turn requested skip_test");
-          if (testRecordingDir) {
-            await recordScriptTurnOutput(testRecordingDir, i, {
-              variables: output.variables,
-              action: "skip_test",
-            });
-          }
-          return {
-            testName: test.name,
-            passed: true,
-            skipped: true,
-            testData: buildTestData(turns, startTs),
-            failures: [],
-          };
-        }
-
-        if (output.action === "skip_turn") {
-          logger.debug("  Script turn skipped (skip_turn)");
-          if (testRecordingDir) {
-            await recordScriptTurnOutput(testRecordingDir, i, {
-              variables: output.variables,
-              action: "skip_turn",
-            });
-          }
-          // Merge any variables the script set before skipping
-          mergeVariables(variables, output.variables, "script turn", logger);
-          continue;
-        }
-
-        // Require message field
-        if (!output.message || !output.message.trim()) {
-          throw new Error(
-            `Script turn did not produce a "message" field`
-          );
-        }
-
-        // Merge variables before sending message
-        mergeVariables(variables, output.variables, "script turn", logger);
-
-        // Record script turn output for replay
-        if (testRecordingDir) {
-          await recordScriptTurnOutput(testRecordingDir, i, {
-            variables: output.variables,
-            message: output.message,
-          });
-        }
-
-        const userMessage = output.message;
-        logger.debug(`    Message: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
-
-        if (testRecordingDir) {
-          const events = createRecordingGenerator(withPromptSent(client!.sendMessage({ message: userMessage })), testRecordingDir, i);
-          turnData = await collectTurnData(events, i, { logger });
-        } else {
-          turnData = await executeTurn(client!, userMessage, i, { logger });
-        }
-      } else if (isConnectTurn(turn)) {
-        // Connect turn - no message, just observe
-        logger.debug(`  Turn ${i + 1}: [connect]`);
+        const events = replayEvents(replayDir!, relativeTestPath, turnIndex);
+        turnData = await collectTurnData(events, turnIndex, { logger });
+      } else if (isConnectStep(step)) {
+        // Connect step - no message, just observe
+        logger.debug(`  Step ${i + 1}: [connect]`);
         if (!client!.connect) {
           throw new Error("Client does not support connect operation");
         }
         if (testRecordingDir) {
-          const events = createRecordingGenerator(withPromptSent(client!.connect()), testRecordingDir, i);
-          turnData = await collectTurnData(events, i, { logger });
+          const events = createRecordingGenerator(withPromptSent(client!.connect()), testRecordingDir, turnIndex);
+          turnData = await collectTurnData(events, turnIndex, { logger });
         } else {
-          turnData = await executeConnectTurn(client!, i, { logger });
+          turnData = await executeConnectTurn(client!, turnIndex, { logger });
         }
-      } else if (isUserTurn(turn)) {
-        // User message turn
-        const userMessage = interpolate(turn.user, variables);
-        logger.debug(`  Turn ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
+      } else if (isUserStep(step)) {
+        // User message step
+        const userMessage = interpolate(step.user, variables);
+        logger.debug(`  Step ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
         if (testRecordingDir) {
-          const events = createRecordingGenerator(withPromptSent(client!.sendMessage({ message: userMessage })), testRecordingDir, i);
-          turnData = await collectTurnData(events, i, { logger });
+          const events = createRecordingGenerator(withPromptSent(client!.sendMessage({ message: userMessage })), testRecordingDir, turnIndex);
+          turnData = await collectTurnData(events, turnIndex, { logger });
         } else {
-          turnData = await executeTurn(client!, userMessage, i, { logger });
+          turnData = await executeTurn(client!, userMessage, turnIndex, { logger });
         }
       } else {
-        // Should never happen due to Zod validation
-        throw new Error(`Unknown turn type at index ${i}`);
+        throw new Error(`Unknown step type at index ${i}`);
       }
 
       turns.push(turnData);
@@ -307,11 +229,11 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
       logger.debug(`    Tools: ${turnData.toolCalls.map((t) => t.name).join(', ') || '(none)'}`);
       logger.debug(`    Duration: ${formatDuration(turnData.endTs - turnData.startTs)}`);
 
-      // Evaluate turn-level assertions (merged: target -> test -> turn)
+      // Evaluate turn-level assertions (merged: target -> test -> step)
       const turnAssertions = mergeAssertBlocks(
         interpolatedConfig.target.assert,
         test.assert,
-        turn.assert
+        step.assert
       );
       const hasAssertions = Object.keys(turnAssertions).length > 0;
 
@@ -321,28 +243,13 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
           logger,
           variables,
           turns,
-          turnIndex: i,
+          turnIndex,
         };
         const evalResult = await evaluateTurnAssertions(turnData, turnAssertions, evalOptions);
 
-        // Check for skip_test action from assertion scripts
-        const skipTestResult = evalResult.results.find(
-          (r) => r.details === "skip_test"
-        );
-        if (skipTestResult) {
-          logger.debug("  Assertion script requested skip_test");
-          return {
-            testName: test.name,
-            passed: true,
-            skipped: true,
-            testData: buildTestData(turns, startTs),
-            failures: [],
-          };
-        }
-
         if (!evalResult.passed) {
           for (const failure of evalResult.failures) {
-            failures.push(formatFailure(failure, i + 1));
+            failures.push(formatFailure(failure, turnIndex + 1));
           }
           // Fail fast on turn-level assertion failure
           return {
@@ -353,12 +260,14 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
           };
         }
       }
+
+      turnIndex++;
     } catch (err) {
       return {
         testName: test.name,
         passed: false,
         testData: buildTestData(turns, startTs),
-        error: `Turn ${i + 1} failed: ${(err as Error).message}`,
+        error: `Step ${i + 1} failed: ${(err as Error).message}`,
         failures: [],
       };
     }
@@ -383,21 +292,6 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
     };
     const evalResult = await evaluateTestAssertions(testData, testAssertions, evalOptions);
 
-    // Check for skip_test from test-level assertion scripts
-    const skipTestResult = evalResult.results.find(
-      (r) => r.details === "skip_test"
-    );
-    if (skipTestResult) {
-      logger.debug("  Test-level assertion script requested skip_test");
-      return {
-        testName: test.name,
-        passed: true,
-        skipped: true,
-        testData,
-        failures: [],
-      };
-    }
-
     if (!evalResult.passed) {
       for (const failure of evalResult.failures) {
         failures.push(formatFailure(failure));
@@ -411,6 +305,15 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
     testData,
     failures,
   };
+}
+
+/**
+ * Exclude assertions from config for interpolation
+ * (assertions contain ${param} templates resolved later by the assertion resolver)
+ */
+function excludeAssertions(config: ProjectConfig): Record<string, unknown> {
+  const { assertions: _skipAssertions, ...rest } = config as Record<string, unknown>;
+  return rest;
 }
 
 function buildTestData(turns: TurnData[], startTs: number): TestData {
@@ -452,4 +355,3 @@ function formatFailure(failure: AssertionResult, turnIndex?: number, indent = 0)
   }
   return msg;
 }
-

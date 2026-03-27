@@ -4,7 +4,7 @@
 
 An assertion-based testing tool for tool-using AI apps that:
 
-- Runs scripted user-only multi-turn conversations
+- Runs scripted user-only multi-step conversations
 - Connects to an app via AG-UI over SSE
 - Observes:
   - tool calls (name + normalized args + result + timing)
@@ -20,7 +20,7 @@ No LLM-as-judge (yet).
 
 - Tools are the primary oracle
 - Text is secondary, regex-based
-- Fail fast on turn-level violations
+- Fail fast on step-level violations
 - Deterministic CI semantics
 - Single execution model
 
@@ -177,31 +177,32 @@ target:
 
 Tests may require front-running setup (REST calls, seeding, auth).
 
-Hooks are defined per test YAML and are executed before any turns.
+Setup is done via **script steps** — steps with `type: script` that run a command and set variables. They appear in the `steps` list alongside user and connect steps.
 
-- Hooks are generic executable commands
+- Script steps are generic executable commands
 - Stdout must be valid JSON
-- Parsed JSON is merged into the variable map
+- Parsed JSON `variables` field is merged into the variable map
 - Failure => FAIL immediately
+- Script steps do not send messages to the agent
 
 There is no built-in notion of `beforeAll` / `beforeEach`.
-If shared setup is required, reference the same hook path from multiple test files.
+If shared setup is required, reference the same script path from multiple test files.
 
-### Hook contract
+### Script step contract
 
 ```yaml
-hooks:
-  - cmd: ["bash", "scripts/setup.sh"]
-    timeout_ms: 15000
+steps:
+  - type: script
+    script: "scripts/setup.sh"
 ```
 
 Stdout example:
 
 ```json
-{ "THREAD_ID": "th_123" }
+{ "variables": { "THREAD_ID": "th_123" } }
 ```
 
-Variables are accessible as `${VAR}`.
+Variables are accessible as `${VAR.NAME}`.
 Environment variables are accessible as `${ENV.NAME}`.
 
 ---
@@ -211,22 +212,23 @@ Environment variables are accessible as `${ENV.NAME}`.
 For each test file:
 
 1. Load project config
-2. Execute test hooks and collect variables
-3. Create protocol client based on `target.type`
-4. Execute all turns sequentially:
+2. Execute steps sequentially:
+   - Script steps: run script, merge variables
+   - User/connect steps: create client (if needed), send message or connect
+3. For each agent-facing step:
 
-   1. Send user message (or execute turn action based on turn type)
-   2. Collect artifacts for the turn:
+   1. Send user message (or connect based on step type)
+   2. Collect artifacts for the step:
 
       - all tool calls emitted before the final assistant message
       - final assistant text
 
-   3. Evaluate turn-level assertions (if any)
+   3. Evaluate step-level assertions (if any)
       - On failure -> FAIL immediately
 
-5. After all turns complete, evaluate test-level assertions
+4. After all steps complete, evaluate test-level assertions
 
-   - Test-level assertions have access to data aggregated from all turns
+   - Test-level assertions have access to data aggregated from all agent-facing steps
 
 6. If all assertions pass -> PASS
 
@@ -234,9 +236,9 @@ For each test file:
 
 ## Captured Data Model
 
-### Per-turn data
+### Per-step data
 
-For each turn, record:
+For each agent-facing step, record:
 
 - ordered list of tool calls:
   - `name`
@@ -250,9 +252,9 @@ For each turn, record:
 
 Test-level assertions receive:
 
-- all tool calls across all turns (with ordering preserved)
-- all assistant texts across all turns
-- per-turn boundaries (turn index preserved)
+- all tool calls across all steps (with ordering preserved)
+- all assistant texts across all steps
+- per-step boundaries (turn index preserved)
 - `test_start_ts` / `test_end_ts` (Unix ms)
 
 ---
@@ -266,14 +268,14 @@ Assertions are pure, deterministic checks over captured data.
 Assertions can be defined at three levels with inheritance:
 
 ```
-target (config) -> test -> turn
+target (config) -> test -> step
 ```
 
 | Level  | Location                  | Scope       | Evaluation               |
 | ------ | ------------------------- | ----------- | ------------------------ |
 | Target | `target.assert` in config | All tests   | Defaults for every test  |
-| Test   | `assert` at test root     | Single test | After all turns complete |
-| Turn   | `assert` under turn       | Single turn | Immediately after turn   |
+| Test   | `assert` at test root     | Single test | After all steps complete |
+| Step   | `assert` under step       | Single step | Immediately after step   |
 
 ### Merge Semantics
 
@@ -305,18 +307,18 @@ assert: # Test-level (extends target)
   text:
     must_not_match: ["error"] # Accumulated: ["exception", "error"]
 
-turns:
+steps:
   - user: "slow operation"
-    assert: # Turn-level (extends test)
+    assert: # Step-level (extends test)
       timing:
-        max_duration_ms: 300000 # Override for this turn
+        max_duration_ms: 300000 # Override for this step
         max_idle_ms: false # Disable idle check
 ```
 
 ### Evaluation
 
-- Turn-level failure => immediate FAIL
-- Test-level failure => FAIL after all turns complete
+- Step-level failure => immediate FAIL
+- Test-level failure => FAIL after all steps complete
 
 ---
 
@@ -420,27 +422,28 @@ version: "1.0"
 
 name: <string>
 
-hooks: # optional
-  - cmd: ["bash", "scripts/setup.sh"]
+steps:
+  - type: script
+    script: "scripts/setup.sh"
 
-turns:
   - type: user # Optional, default is "user"
     user: <string>
-    assert: <AssertBlock> # Turn-level assertions
+    assert: <AssertBlock> # Step-level assertions
 
-  - type: agui:connect # AG-UI specific turn type
+  - type: agui:connect # AG-UI specific step type
     assert: <AssertBlock>
 
 assert: <AssertBlock> # Test-level assertions
 ```
 
-### Turn Types
+### Step Types
 
-Turn types use a `type` discriminator for extensibility:
+Step types use a `type` discriminator for extensibility:
 
 | Type           | Protocol | Description                                |
 | -------------- | -------- | ------------------------------------------ |
 | `user`         | All      | Send user message (default)                |
+| `script`       | —        | Run script, set variables (no agent call)  |
 | `agui:connect` | AG-UI    | Connect to existing thread without message |
 | `a2a:send`     | A2A      | _(future)_ Send A2A task                   |
 | `mcp:call`     | MCP      | _(future)_ Call MCP tool directly          |
@@ -488,11 +491,12 @@ version: "1.0"
 
 name: checkout flow with validation
 
-hooks:
-  - cmd: ["bash", "scripts/seed-cart.sh"]
-    timeout_ms: 10000
+steps:
+  - type: script
+    script:
+      run: "scripts/seed-cart.sh"
+      timeout_ms: 10000
 
-turns:
   - user: "I want to checkout"
     assert:
       tools:
@@ -501,7 +505,7 @@ turns:
           - name: get_shipping_options
             after: validate_cart
       timing:
-        max_duration_ms: 30000 # Turn-level override
+        max_duration_ms: 30000 # Step-level override
 
   - user: "Use the first shipping option"
     assert:
@@ -559,7 +563,7 @@ assertions:
       max_duration_ms: 5000
 
 # test.yaml
-turns:
+steps:
   - user: "checkout"
     assert:
       extends: [no_errors, fast_response] # Reuse common assertions

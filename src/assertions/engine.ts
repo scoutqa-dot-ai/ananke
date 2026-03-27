@@ -50,7 +50,7 @@ function createScriptRunner(
       turnIndex: options?.turnIndex,
     });
 
-    const result = await executeScript(config, ananke, "assertion", {
+    const result = await executeScript(config, ananke, {
       logger: options?.logger,
     });
 
@@ -68,16 +68,6 @@ function createScriptRunner(
     }
 
     const { output } = result;
-
-    // Handle actions
-    if (output.action === "skip_assertion") {
-      ctx.logger?.debug(`[assert] ${ctx.path.join(" → ")}: SKIPPED (skip_assertion)`);
-      return { passed: true, assertion: "script (skipped)", path: ctx.path, reason: output.reason };
-    }
-
-    if (output.action === "skip_test") {
-      return { passed: true, assertion: "script (skip_test)", path: ctx.path, details: "skip_test", reason: output.reason };
-    }
 
     // Merge variables
     if (Object.keys(output.variables).length > 0 && options?.variables) {

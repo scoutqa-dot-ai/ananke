@@ -1,19 +1,16 @@
 export {
   getTestRecordingDir,
   getTurnFilePath,
-  getHookFilePath,
-  getScriptTurnFilePath,
+  getScriptStepFilePath,
   ensureRecordingDir,
   recordEvent,
-  recordHookOutput,
-  recordScriptTurnOutput,
+  recordScriptStepOutput,
   createRecordingGenerator,
 } from './recorder.js';
 
 export {
   hasRecording,
   hasTurnRecording,
-  loadHookOutput,
-  loadScriptTurnOutput,
+  loadScriptStepOutput,
   replayEvents,
 } from './replayer.js';

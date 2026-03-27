@@ -28,22 +28,11 @@ export interface AnankeInput {
   turnIndex: number | null;
 }
 
-/** Valid actions a script can return in stdout JSON */
-export type ScriptAction =
-  | "skip_hook"
-  | "skip_turn"
-  | "skip_test"
-  | "skip_assertion";
-
-/** Where the script is being executed from */
-export type ScriptLocation = "hook" | "turn" | "assertion";
-
 /** Parsed stdout from any script */
 export interface ScriptOutput {
   variables: Variables;
   message?: string;
   reason?: string;
-  action?: ScriptAction;
 }
 
 /** Full result of executing a script */
@@ -52,12 +41,6 @@ export interface ScriptResult {
   exitCode: number;
   stderr: string;
 }
-
-const VALID_ACTIONS_BY_LOCATION: Record<ScriptLocation, Set<ScriptAction>> = {
-  hook: new Set(["skip_hook", "skip_test"]),
-  turn: new Set(["skip_turn", "skip_test"]),
-  assertion: new Set(["skip_assertion", "skip_test"]),
-};
 
 /**
  * Merge script output variables into a target variable map with override logging.
@@ -111,17 +94,15 @@ export function buildAnankeInput(opts: {
 }
 
 /**
- * Execute a script with the unified contract.
+ * Execute a script.
  *
  * - Sets ANANKE env var and passes it to stdin
- * - Parses stdout as JSON
- * - Validates action field against location
+ * - Parses stdout as JSON on exit 0
  * - Returns parsed output, exit code, and stderr
  */
 export async function executeScript(
   config: ScriptConfig,
   ananke: AnankeInput,
-  location: ScriptLocation,
   opts?: { logger?: Logger; extraEnv?: Record<string, string> },
 ): Promise<ScriptResult> {
   const { logger } = opts ?? {};
@@ -129,7 +110,7 @@ export async function executeScript(
   const anankeJson = JSON.stringify(ananke);
 
   logger?.debug(
-    `[script] Running: ${config.run} (location=${location}, timeout=${timeout}ms)`,
+    `[script] Running: ${config.run} (timeout=${timeout}ms)`,
   );
 
   // Build env: process.env + ANANKE + config.env + extraEnv
@@ -171,7 +152,7 @@ export async function executeScript(
 
     if (result.timedOut) {
       logger?.error(
-        `[script] Timeout ${location} script: ${config.run} after ${formatDuration(elapsed)}`,
+        `[script] Timeout: ${config.run} after ${formatDuration(elapsed)}`,
       );
       return {
         output: { variables: {} },
@@ -180,7 +161,7 @@ export async function executeScript(
       };
     } else if (elapsed >= SLOW_SCRIPT_THRESHOLD_MS) {
       logger?.warn(
-        `[script] Slow ${location} script: ${config.run} took ${formatDuration(elapsed)} (exit=${exitCode})`,
+        `[script] Slow script: ${config.run} took ${formatDuration(elapsed)} (exit=${exitCode})`,
       );
     } else {
       logger?.debug(`[script] Exit code: ${exitCode}`);
@@ -210,7 +191,7 @@ export async function executeScript(
 
     // Parse stdout as JSON
     try {
-      const output = parseScriptOutput(stdout, location, logger);
+      const output = parseScriptOutput(stdout, logger);
       return { output, exitCode: 0, stderr };
     } catch (parseErr: unknown) {
       // Parse/validation errors are returned as failures, not thrown
@@ -237,7 +218,6 @@ export async function executeScript(
 
 function parseScriptOutput(
   stdout: string,
-  location: ScriptLocation,
   logger?: Logger,
 ): ScriptOutput {
   if (!stdout) {
@@ -292,22 +272,6 @@ function parseScriptOutput(
       throw new Error(`Script "reason" must be a string`);
     }
     output.reason = obj.reason;
-  }
-
-  // Extract and validate action
-  if (obj.action !== undefined) {
-    if (typeof obj.action !== "string") {
-      throw new Error(`Script "action" must be a string`);
-    }
-    const action = obj.action as ScriptAction;
-    const validActions = VALID_ACTIONS_BY_LOCATION[location];
-    if (!validActions.has(action)) {
-      const valid = Array.from(validActions).join(", ");
-      throw new Error(
-        `Invalid action "${action}" for ${location} script. Valid actions: ${valid}`,
-      );
-    }
-    output.action = action;
   }
 
   const fields = Object.keys(output).filter(

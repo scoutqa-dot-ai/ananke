@@ -12,7 +12,7 @@
 
 During assertion evaluation, the system has access to this data:
 
-### Turn-level
+### Step-level
 
 ```typescript
 interface TurnData {
@@ -31,11 +31,11 @@ interface ToolCall {
 }
 ```
 
-### Test-level (aggregated across all turns)
+### Test-level (aggregated across all steps)
 
 ```typescript
 interface TestData {
-  turns: TurnData[];
+  steps: TurnData[];
   allToolCalls: ToolCall[];
   allAssistantTexts: string[];
   startTs: number;
@@ -59,7 +59,7 @@ Selectors are the top-level keys in an `assert` block. Each extracts a typed val
 
 | Selector | Type | Extracts |
 |---|---|---|
-| `text` | string | `assistantText` (turn) or `allAssistantTexts.join("\n")` (test) |
+| `text` | string | `assistantText` (step) or `allAssistantTexts.join("\n")` (test) |
 | `tool_names` | array\<string\> | `toolCalls.map(c => c.name)` |
 | `tools` | array\<object\> | `toolCalls` (full ToolCall objects) |
 | `response` | object | Flat object with computed response metrics (see below) |
@@ -195,7 +195,7 @@ assertions:
 Named assertions are used by name, exactly like built-in operators:
 
 ```yaml
-turns:
+steps:
   - user: "What's the status of project P1?"
     assert:
       fast_response: {}
@@ -226,7 +226,7 @@ assertions:
 
 ```yaml
 # Usage (in test file)
-turns:
+steps:
   - user: "Find iterations"
     assert:
       tool_called_n_times: { tool_name: "search", n: 2 }
@@ -240,7 +240,7 @@ When the value is an object, its keys are treated as parameter substitutions. Wh
 Named assertions work inside `and`, `or`, `not` like any other operator:
 
 ```yaml
-turns:
+steps:
   - user: "Generate report"
     assert:
       or:
@@ -283,7 +283,7 @@ script: "scripts/verify_user_exists.sh"
 The current value is passed to the script via:
 - `ASSERT_VALUE` env var (JSON-encoded)
 - `stdin` (JSON-encoded)
-- `ASSERT_CONTEXT` env var contains the full turn/test context (JSON)
+- `ASSERT_CONTEXT` env var contains the full step/test context (JSON)
 
 **Pass/fail rules:**
 - Exit code `0` → pass
@@ -291,7 +291,7 @@ The current value is passed to the script via:
 
 ```yaml
 # Short form
-turns:
+steps:
   - user: "Create user John"
     assert:
       tools:
@@ -302,7 +302,7 @@ turns:
               script: "scripts/verify_user_exists.sh"
 
 # Long form — custom timeout and env
-turns:
+steps:
   - user: "Send the webhook"
     assert:
       script:
@@ -312,7 +312,7 @@ turns:
           EXPECTED_EVENT: "user.created"
 
 # Short form with inline command
-turns:
+steps:
   - user: "Write the config file"
     assert:
       tools:
@@ -340,7 +340,7 @@ assertions:
 
 ```yaml
 # test file
-turns:
+steps:
   - user: "Create the project"
     assert:
       tools:
@@ -505,7 +505,7 @@ assert:
 ### S2: Single tool use
 
 ```yaml
-turns:
+steps:
   - user: "What's the status of project P1?"
     assert:
       tool_names:
@@ -520,7 +520,7 @@ turns:
 ### S3: Multi-tool with ordering
 
 ```yaml
-turns:
+steps:
   - user: "Find iterations for project P1 and show details"
     assert:
       tool_names:
@@ -536,7 +536,7 @@ turns:
 ### S4: Multiple insight tools
 
 ```yaml
-turns:
+steps:
   - user: "Give me a comprehensive quality report for project P1"
     assert:
       tool_names:
@@ -553,7 +553,7 @@ turns:
 ### S5: URL generation
 
 ```yaml
-turns:
+steps:
   - user: "Set up the project"
     assert:
       tool_names:
@@ -572,7 +572,7 @@ turns:
 ### S8: Branching response (clarification vs draft)
 
 ```yaml
-turns:
+steps:
   - user: "Generate report"
     assert:
       or:
@@ -584,10 +584,10 @@ turns:
             - tools: { count: { equals: 0 } }
 ```
 
-### S9: Multi-turn with forbidden tools
+### S9: Multi-step with forbidden tools
 
 ```yaml
-turns:
+steps:
   - user: "Tell me about Katalon TestOps"
     assert:
       tools:
@@ -709,7 +709,7 @@ assert:
 #     completes_within:
 #       duration_ms: { max: "${ms}" }
 
-turns:
+steps:
   - user: "Search for weather data twice"
     assert:
       tool_called_n_times: { tool_name: "search", n: 2 }
@@ -729,7 +729,7 @@ turns:
 #           TABLE: "${table}"
 #           ID_FIELD: "${id_field}"
 
-turns:
+steps:
   - user: "Create the project"
     assert:
       tool_called_n_times: { tool_name: "create_project", n: 1 }

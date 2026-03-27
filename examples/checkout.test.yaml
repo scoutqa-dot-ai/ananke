@@ -2,11 +2,9 @@ version: "1.0"
 
 name: checkout flow with validation
 
-hooks:
-  - cmd: ["echo", "{\"variables\": {\"THREAD_ID\": \"th_123\"}}"]
-    timeout_ms: 10000
+steps:
+  - script: 'echo "{\"variables\": {\"THREAD_ID\": \"th_123\"}}"'
 
-turns:
   - user: "I want to checkout"
     assert:
       tool_names:

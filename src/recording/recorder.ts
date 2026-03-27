@@ -4,14 +4,6 @@ import type { TimestampedEvent } from "../client/events.js";
 import type { Variables } from "../config/interpolate.js";
 
 /**
- * Recorded event with timestamp
- */
-interface RecordedEvent {
-  event: TimestampedEvent;
-  // Timestamp is already in event["ananke:ts"], but we store it for clarity
-}
-
-/**
  * Get the recording directory path for a test file
  */
 export function getTestRecordingDir(
@@ -25,14 +17,7 @@ export function getTestRecordingDir(
  * Get the path for a turn's event file
  */
 export function getTurnFilePath(testDir: string, turnIndex: number): string {
-  return join(testDir, `turn-${turnIndex}.jsonl`);
-}
-
-/**
- * Get the path for a hook's output file
- */
-export function getHookFilePath(testDir: string, hookIndex: number): string {
-  return join(testDir, `hook-${hookIndex}.json`);
+  return join(testDir, `step-${turnIndex}.jsonl`);
 }
 
 /**
@@ -56,34 +41,21 @@ export async function recordEvent(
 }
 
 /**
- * Record hook output variables
+ * Get the path for a script step's output file
  */
-export async function recordHookOutput(
-  testDir: string,
-  hookIndex: number,
-  variables: Variables
-): Promise<void> {
-  const filePath = getHookFilePath(testDir, hookIndex);
-  await ensureRecordingDir(dirname(filePath));
-  await writeFile(filePath, JSON.stringify(variables, null, 2));
+export function getScriptStepFilePath(testDir: string, stepIndex: number): string {
+  return join(testDir, `script-step-${stepIndex}.json`);
 }
 
 /**
- * Get the path for a script turn's output file
+ * Record script step output
  */
-export function getScriptTurnFilePath(testDir: string, turnIndex: number): string {
-  return join(testDir, `script-turn-${turnIndex}.json`);
-}
-
-/**
- * Record script turn output (variables, message, action)
- */
-export async function recordScriptTurnOutput(
+export async function recordScriptStepOutput(
   testDir: string,
-  turnIndex: number,
-  output: { variables: Variables; message?: string; action?: string }
+  stepIndex: number,
+  output: { variables: Variables; skipped?: boolean }
 ): Promise<void> {
-  const filePath = getScriptTurnFilePath(testDir, turnIndex);
+  const filePath = getScriptStepFilePath(testDir, stepIndex);
   await ensureRecordingDir(dirname(filePath));
   await writeFile(filePath, JSON.stringify(output, null, 2));
 }
