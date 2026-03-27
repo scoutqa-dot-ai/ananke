@@ -29,7 +29,14 @@ function fail(
   opts: { expected?: string; actual?: string; details?: string } = {}
 ): AssertionResult {
   const result: AssertionResult = { passed: false, assertion, path: ctx.path, ...opts };
-  ctx.logger?.debug(`[assert] ${ctx.path.join(" → ")}: FAILED — ${assertion}`);
+  const detail = opts.expected && opts.actual
+    ? ` (expected: ${opts.expected}, got: ${opts.actual})`
+    : opts.expected
+      ? ` (expected: ${opts.expected})`
+      : opts.actual
+        ? ` (got: ${opts.actual})`
+        : "";
+  ctx.logger?.debug(`[assert] ${ctx.path.join(" → ")}: FAILED — ${assertion}${detail}`);
   return result;
 }
 

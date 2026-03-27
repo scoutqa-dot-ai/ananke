@@ -55,13 +55,15 @@ function createScriptRunner(
     });
 
     if (result.exitCode !== 0) {
-      ctx.logger?.debug(`[assert] ${ctx.path.join(" → ")}: FAILED — ${result.stderr}`);
+      const expected = `${config.run}: exit code 0`;
+      const actual = `exit code ${result.exitCode}${result.stderr ? `: ${result.stderr.slice(0, 200)}` : ""}`;
+      ctx.logger?.debug(`[assert] ${ctx.path.join(" → ")}: FAILED — script (expected: ${expected}, got: ${actual})`);
       return {
         passed: false,
         assertion: "script",
         path: ctx.path,
-        expected: "exit code 0",
-        actual: result.stderr.slice(0, 200),
+        expected,
+        actual,
       };
     }
 
