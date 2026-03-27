@@ -407,19 +407,21 @@ async function evalSome(
       }),
     ];
   }
-  for (const element of value) {
-    const elementResults = await evaluate(element, node, ctx);
+  const allElementFailures: AssertionResult[] = [];
+  for (let i = 0; i < value.length; i++) {
+    const elementResults = await evaluate(value[i], node, child(ctx, `[${i}]`));
     const failures = elementResults.filter((r) => !r.passed);
     if (failures.length === 0) {
       return []; // at least one element passed
     }
+    allElementFailures.push(...failures);
   }
-  return [
-    fail("some", ctx, {
-      expected: "at least one element matching",
-      actual: `no element in array of ${value.length} matched`,
-    }),
-  ];
+  const result = fail("some", ctx, {
+    expected: "at least one element matching",
+    actual: truncate(stringify(value), 120),
+  });
+  result.children = allElementFailures;
+  return [result];
 }
 
 async function evalNone(
@@ -585,28 +587,23 @@ async function evalOr(
   ctx: EvalContext
 ): Promise<AssertionResult[]> {
   // At least one branch must pass entirely
-  const allBranchFailures: AssertionResult[][] = [];
-  for (const branch of branches) {
-    const branchResults = await evaluate(value, branch, ctx);
+  const branchChildren: AssertionResult[] = [];
+  for (let i = 0; i < branches.length; i++) {
+    const branchCtx = child(ctx, `branch ${i + 1}`);
+    const branchResults = await evaluate(value, branches[i], branchCtx);
     const failures = branchResults.filter((r) => !r.passed);
     if (failures.length === 0) {
       return []; // this branch passed
     }
-    allBranchFailures.push(failures);
+    branchChildren.push(...failures);
   }
-  // All branches failed
-  return [
-    fail("or", ctx, {
-      expected: "at least one branch to pass",
-      actual: `all ${branches.length} branches failed`,
-      details: allBranchFailures
-        .map(
-          (failures, i) =>
-            `branch ${i + 1}: ${failures.map((f) => f.assertion).join(", ")}`
-        )
-        .join("; "),
-    }),
-  ];
+  // All branches failed — attach each branch's failures as children
+  const result = fail("or", ctx, {
+    expected: "at least one branch to pass",
+    actual: `all ${branches.length} branches failed`,
+  });
+  result.children = branchChildren;
+  return [result];
 }
 
 async function evalNot(

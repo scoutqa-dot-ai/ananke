@@ -120,17 +120,17 @@ async function evaluateAssertBlock(
   // Handle top-level meta: or, and, not (these wrap full assert blocks)
   if (assertions.or) {
     const branches = assertions.or as AssertBlock[];
-    const allBranchFailures: AssertionResult[][] = [];
+    const branchChildren: AssertionResult[] = [];
     let anyPassed = false;
 
-    for (const branch of branches) {
-      const branchResults = await evaluateAssertBlock(selectorData, branch, ctx);
+    for (let i = 0; i < branches.length; i++) {
+      const branchResults = await evaluateAssertBlock(selectorData, branches[i], ctx);
       const failures = branchResults.filter((r) => !r.passed);
       if (failures.length === 0) {
         anyPassed = true;
         break;
       }
-      allBranchFailures.push(failures);
+      branchChildren.push(...failures);
     }
 
     if (!anyPassed) {
@@ -140,12 +140,7 @@ async function evaluateAssertBlock(
         path: ["or"],
         expected: "at least one branch to pass",
         actual: `all ${branches.length} branches failed`,
-        details: allBranchFailures
-          .map(
-            (failures, i) =>
-              `branch ${i + 1}: ${failures.map((f) => f.assertion).join(", ")}`
-          )
-          .join("; "),
+        children: branchChildren,
       });
       ctx.logger?.debug(`[assert] or: FAILED — all ${branches.length} branches failed`);
     }

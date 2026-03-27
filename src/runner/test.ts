@@ -426,10 +426,13 @@ function buildTestData(turns: TurnData[], startTs: number): TestData {
   };
 }
 
-function formatFailure(failure: AssertionResult, turnIndex?: number): string {
-  const prefix = turnIndex !== undefined ? `[Turn ${turnIndex}] ` : '';
+function formatFailure(failure: AssertionResult, turnIndex?: number, indent = 0): string {
+  const pad = indent > 0 ? '  '.repeat(indent) : '';
+  const prefix = turnIndex !== undefined && indent === 0 ? `[Turn ${turnIndex}] ` : '';
   const pathStr = failure.path?.length ? `${failure.path.join(' → ')}: ` : '';
-  let msg = `${prefix}${pathStr}${failure.assertion}`;
+  const lastSegment = failure.path?.[failure.path.length - 1];
+  const assertionLabel = lastSegment === failure.assertion ? '' : failure.assertion;
+  let msg = `${pad}${prefix}${pathStr}${assertionLabel}`;
   if (failure.expected) {
     msg += ` (expected: ${failure.expected}`;
     if (failure.actual) {
@@ -441,6 +444,11 @@ function formatFailure(failure: AssertionResult, turnIndex?: number): string {
   }
   if (failure.details) {
     msg += ` - ${failure.details}`;
+  }
+  if (failure.children?.length) {
+    for (const child of failure.children) {
+      msg += '\n' + formatFailure(child, undefined, indent + 1);
+    }
   }
   return msg;
 }

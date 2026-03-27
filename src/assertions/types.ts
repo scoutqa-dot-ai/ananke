@@ -8,6 +8,8 @@ export interface AssertionResult {
   actual?: string;
   details?: string;
   path?: string[];
+  /** Nested failures from composite assertions (or, and, not) */
+  children?: AssertionResult[];
   /** Variables set by script assertions (merged into variable map) */
   variables?: Variables;
   /** Debug reason from script assertion */
