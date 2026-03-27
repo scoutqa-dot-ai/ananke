@@ -129,24 +129,6 @@ describe("executeScript", () => {
       expect(result.output.variables).toEqual({ TOKEN: "abc", ID: "123" });
     });
 
-    it("parses message from stdout", async () => {
-      const config: ScriptConfig = {
-        run: `echo '{"message": "Use option A"}'`,
-      };
-      const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke);
-      expect(result.output.message).toBe("Use option A");
-    });
-
-    it("parses reason from stdout", async () => {
-      const config: ScriptConfig = {
-        run: `echo '{"reason": "User verified"}'`,
-      };
-      const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke);
-      expect(result.output.reason).toBe("User verified");
-    });
-
     it("converts variable values to strings", async () => {
       const config: ScriptConfig = {
         run: `echo '{"variables": {"NUM": 42, "BOOL": true}}'`,
@@ -177,12 +159,11 @@ describe("executeScript", () => {
       const ananke = buildAnankeInput({});
       const result = await executeScript(config, ananke);
       expect(result.output.variables).toEqual({});
-      expect(result.output.message).toBeUndefined();
     });
 
     it("ignores unknown fields in stdout JSON", async () => {
       const config: ScriptConfig = {
-        run: `echo '{"variables": {"A": "1"}, "action": "skip_test", "extra": true}'`,
+        run: `echo '{"variables": {"A": "1"}, "message": "ignored", "reason": "ignored", "extra": true}'`,
       };
       const ananke = buildAnankeInput({});
       const result = await executeScript(config, ananke);
@@ -202,16 +183,4 @@ describe("executeScript", () => {
     }, 5000);
   });
 
-  describe("combined output", () => {
-    it("parses message + variables together", async () => {
-      const config: ScriptConfig = {
-        run: `echo '{"message": "Hello", "variables": {"ID": "42"}, "reason": "all good"}'`,
-      };
-      const ananke = buildAnankeInput({});
-      const result = await executeScript(config, ananke);
-      expect(result.output.message).toBe("Hello");
-      expect(result.output.variables).toEqual({ ID: "42" });
-      expect(result.output.reason).toBe("all good");
-    });
-  });
 });

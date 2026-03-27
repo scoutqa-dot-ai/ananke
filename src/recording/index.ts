@@ -1,16 +1,13 @@
 export {
   getTestRecordingDir,
-  getTurnFilePath,
-  getScriptStepFilePath,
+  getStepFilePath,
   ensureRecordingDir,
   recordEvent,
-  recordScriptStepOutput,
   createRecordingGenerator,
 } from './recorder.js';
 
 export {
   hasRecording,
-  hasTurnRecording,
-  loadScriptStepOutput,
+  hasStepRecording,
   replayEvents,
 } from './replayer.js';

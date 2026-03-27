@@ -63,7 +63,7 @@ Every script receives a single env var `ANANKE` containing a JSON object with a 
 | Location | `value` | `turns` | `variables` | `turnIndex` |
 |---|---|---|---|---|
 | **Script step** | `null` | completed turns | accumulated from prior steps | `null` |
-| **Assertion (turn)** | the asserted value | completed turns | all vars | current index |
+| **Assertion (step)** | the asserted value | completed turns | all vars | current index |
 | **Assertion (test)** | the asserted value | all turns | all vars | `null` |
 
 The `env` field in the long form adds extra env vars on top of `ANANKE`. These are for convenience — passing small values without parsing JSON.
@@ -72,28 +72,19 @@ The `env` field in the long form adds extra env vars on top of `ANANKE`. These a
 
 ## Output: stdout as JSON
 
-Every script outputs a JSON object to stdout. All fields are optional:
+Every script outputs a JSON object to stdout. The only recognized field is `variables`:
 
 ```json
 {
-  "variables": { "TOKEN": "abc", "ORDER_ID": "ord_456" },
-  "reason": "User record found in database"
+  "variables": { "TOKEN": "abc", "ORDER_ID": "ord_456" }
 }
 ```
 
-| Field | Type | Used by | Description |
-|---|---|---|---|
-| `variables` | `Record<string, string>` | All | Merged into the variable map for subsequent interpolation |
-| `reason` | `string` | Assertion | Debug info captured in test output (for both pass and fail) |
-
-### What each location uses
-
-| Location | `variables` | `reason` |
+| Field | Type | Description |
 |---|---|---|
-| **Script step** | Merged into variable map | ignored |
-| **Assertion** | Merged into variable map | Captured in assertion result for debugging |
+| `variables` | `Record<string, string>` | Merged into the variable map for subsequent interpolation |
 
-Empty stdout or `{}` is valid — no variables set, no reason.
+Empty stdout or `{}` is valid — no variables set.
 
 ### Error: non-JSON stdout
 
@@ -103,55 +94,39 @@ If stdout is not valid JSON and exit code is 0, the script fails with a parse er
 
 ## Exit Codes
 
+Exit codes are the sole control mechanism. No action fields, no special JSON keys.
+
+### Script steps
+
 | Code | Meaning |
 |---|---|
-| **0** | Success — parse stdout as JSON |
-| **non-zero** | Failure — stderr is captured as the error reason |
+| **0** | Success — parse stdout JSON, merge variables |
+| **non-zero** | Skip test — preconditions not met (test result: SKIP, not FAIL) |
 
-Exit codes are simple: 0 or not-0. All skip/control logic is handled via the `action` field in stdout JSON (see below).
+### Assertion scripts
 
----
-
-## Action Field
-
-The `action` field in stdout JSON controls execution flow. When absent, the default behavior applies (set variables, etc.).
-
-| Action | Description |
+| Code | Meaning |
 |---|---|
-| `"skip_step"` | Skip this step. No variables set. Execution continues to the next step. |
-| `"skip_test"` | Stop the entire test with a **SKIP** result (not PASS, not FAIL). No subsequent steps execute. |
-| `"skip_assertion"` | Skip this assertion (vacuous pass). Other assertions and steps continue. |
-
-### Which actions are valid where
-
-| Location | Valid actions | Default (no action) |
-|---|---|---|
-| **Script step** | `skip_step`, `skip_test` | Set variables |
-| **Assertion** | `skip_assertion`, `skip_test` | Pass/fail based on exit code |
-
-Using an invalid action for the location (e.g., `skip_assertion` in a script step) produces an error.
+| **0** | Pass — assertion succeeded |
+| **non-zero** | Fail — assertion failed, stderr captured as reason |
 
 ### Examples
 
 ```bash
-# Skip this step — continue to next
-echo '{"action": "skip_step"}'
-exit 0
-
-# Skip the entire test — preconditions not met
-echo '{"action": "skip_test"}'
-exit 0
-
 # Normal execution — set variables
 echo '{"variables": {"THREAD_ID": "th_123", "TOKEN": "abc"}}'
 exit 0
 
-# Conditional setup — skip if env not available
-if [ -z "$COUPON" ]; then
-  echo '{"action": "skip_step"}'
-else
-  echo '{"variables": {"HAS_COUPON": "true", "COUPON_CODE": "'"$COUPON"'"}}'
+# Skip the entire test — preconditions not met
+echo '{}' >&2
+exit 1
+
+# Conditional setup — skip test if env not available
+if [ -z "$REQUIRED_TOKEN" ]; then
+  echo "Missing REQUIRED_TOKEN" >&2
+  exit 1
 fi
+echo '{"variables": {"TOKEN": "'"$REQUIRED_TOKEN"'"}}'
 exit 0
 ```
 
@@ -203,12 +178,10 @@ The `user` field is interpolated with `${VAR.X}` and `${ENV.X}` before sending. 
 
 ```yaml
 steps:
-  - type: script
-    script: "scripts/seed-cart.sh"
+  - script: "scripts/seed-cart.sh"
     # stdout: {"variables": {"CART_ID": "cart_789"}}
 
-  - type: script
-    script:
+  - script:
       run: "scripts/pick-cheapest-option.sh"
       timeout_ms: 5000
       env:
@@ -217,11 +190,12 @@ steps:
 
 Script steps:
 1. Run the script with `ANANKE` containing all completed turns and current variables
-2. Parse stdout JSON and merge `variables` into the map
-3. **Do not send any message to the agent**
-4. **Do not take assertions** (no agent response to assert on)
+2. On exit 0: parse stdout JSON and merge `variables` into the map
+3. On non-zero exit: skip the test (preconditions not met)
+4. **Do not send any message to the agent**
+5. **Do not take assertions** (no agent response to assert on)
 
-This replaces the former "hooks" concept. Script steps at the beginning of a test serve the same purpose hooks did (setup, variable initialization), but are now just regular steps in the sequence.
+Script steps always execute, even during replay mode. Only agent turns are replayed from recordings.
 
 ### Connect step — observe an existing thread
 
@@ -239,12 +213,12 @@ Connects to an existing AG-UI thread without sending a message. Assertions evalu
 
 ## Script Assertion
 
-Script assertions use the unified contract to perform custom evaluation.
+Script assertions use the unified contract to perform custom evaluation. Exit 0 = pass, non-zero = fail.
 
 ### Examples
 
 ```yaml
-# Assertion with debug reason
+# Assertion script
 steps:
   - user: "Create user John"
     assert:
@@ -262,10 +236,10 @@ steps:
 USER_ID=$(echo "$ANANKE" | jq -r '.value')
 
 if psql -v id="$USER_ID" -t -c "SELECT 1 FROM users WHERE id = :'id'" | grep -q 1; then
-  echo '{"reason": "User found in database"}'
+  echo '{}'
   exit 0
 else
-  echo '{"reason": "User not found in users table"}' >&2
+  echo "User not found in users table" >&2
   exit 1
 fi
 ```
@@ -294,10 +268,10 @@ steps:
 PROJECT_ID=$(echo "$ANANKE" | jq -r '.value')
 
 if psql -v id="$PROJECT_ID" -t -c "SELECT 1 FROM projects WHERE id = :'id'" | grep -q 1; then
-  echo "{\"variables\": {\"CREATED_PROJECT_ID\": \"$PROJECT_ID\"}, \"reason\": \"Project verified\"}"
+  echo "{\"variables\": {\"CREATED_PROJECT_ID\": \"$PROJECT_ID\"}}"
   exit 0
 else
-  echo '{"reason": "Project not found"}' >&2
+  echo "Project not found" >&2
   exit 1
 fi
 ```
@@ -335,8 +309,7 @@ name: dynamic checkout with coupon
 
 steps:
   # Step 1: setup — seed cart via script
-  - type: script
-    script: "scripts/seed-cart.sh"
+  - script: "scripts/seed-cart.sh"
     # stdout: {"variables": {"CART_ID": "cart_789"}}
 
   # Step 2: user message using variable from setup
@@ -345,9 +318,8 @@ steps:
       tool_names:
         some: { equals: "get_shipping_options" }
 
-  # Step 3: script picks cheapest option from turn 1's response
-  - type: script
-    script: "scripts/pick-cheapest-option.sh"
+  # Step 3: script picks cheapest option from step 2's response
+  - script: "scripts/pick-cheapest-option.sh"
     # stdout: {"variables": {"SHIPPING_OPTION": "Express"}}
 
   # Step 4: send the picked option
@@ -356,14 +328,13 @@ steps:
       tool_names:
         some: { equals: "calculate_total" }
 
-  # Step 5: script may skip if no coupon available
-  - type: script
-    script:
-      run: "scripts/maybe-get-coupon.sh"
+  # Step 5: script checks coupon — exit 1 skips test if not available
+  - script:
+      run: "scripts/require-coupon.sh"
       env:
         COUPON: "${ENV.COUPON_CODE}"
     # stdout: {"variables": {"COUPON_MSG": "Apply coupon code ABC123"}}
-    # or: {"action": "skip_step"}
+    # or: exit 1 (skip test)
 
   # Step 6: apply coupon (message comes from script variable)
   - user: "${VAR.COUPON_MSG}"
@@ -402,11 +373,11 @@ echo "{\"variables\": {\"SHIPPING_OPTION\": \"$CHEAPEST\"}}"
 
 ```bash
 #!/bin/bash
-# scripts/maybe-get-coupon.sh
+# scripts/require-coupon.sh
 COUPON="$COUPON"  # from env field
 if [ -z "$COUPON" ]; then
-  echo '{"action": "skip_step"}'
-  exit 0
+  echo "No coupon code available" >&2
+  exit 1
 fi
 echo "{\"variables\": {\"COUPON_MSG\": \"Apply coupon code $COUPON\", \"HAS_COUPON\": \"true\"}}"
 ```
@@ -419,7 +390,7 @@ echo "{\"variables\": {\"COUPON_MSG\": \"Apply coupon code $COUPON\", \"HAS_COUP
 |---|---|
 | `src/types/test.ts` | `ScriptStepSchema`, `StepSchema` union, `TestFileSchema` with `steps` |
 | `src/config/interpolate.ts` | `${VAR.NAME}` / `${ENV.NAME}` parsing |
-| `src/runner/script.ts` | Shared script executor (parse stdout, build ANANKE, handle actions) |
+| `src/runner/script.ts` | Shared script executor (parse stdout, build ANANKE) |
 | `src/runner/test.ts` | Step execution loop — script steps set vars, user/connect steps talk to agent |
 | `src/assertions/engine.ts` | Script assertions via shared executor |
 
@@ -449,7 +420,7 @@ steps (sequential)
   step 2 (user): "msg with ${VAR.A}" → sends "msg with 1"
     → agent responds → turnData[0]  (turnIndex=0)
     assertion script (if any): ANANKE={value:..., turns:[turnData[0]], variables:{A:"1",B:"2"}, turnIndex:0}
-      → stdout: {variables: {C: "3"}, reason: "checked"}
+      → stdout: {variables: {C: "3"}}
       → vars = {A: "1", B: "2", C: "3"}
 
   step 3 (script): ANANKE={value:null, turns:[turnData[0]], variables:{A:"1",B:"2",C:"3"}, turnIndex:null}
@@ -483,8 +454,7 @@ steps (sequential)
 │  │  • Set env: ANANKE + custom env              │   │
 │  │  • Pass ANANKE to stdin                      │   │
 │  │  • Parse stdout as JSON                      │   │
-│  │  • Extract: variables, reason, action        │   │
-│  │  • Validate action per location              │   │
+│  │  • Extract: variables                        │   │
 │  │  • Handle exit 0 / non-zero                  │   │
 │  └──────────────────────────────────────────────┘   │
 │                        │                            │

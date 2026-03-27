@@ -1,11 +1,9 @@
 import { readFile } from "fs/promises";
 import { existsSync } from "fs";
 import type { TimestampedEvent } from "../client/events.js";
-import type { Variables } from "../config/interpolate.js";
 import {
   getTestRecordingDir,
-  getTurnFilePath,
-  getScriptStepFilePath,
+  getStepFilePath,
 } from "./recorder.js";
 
 /**
@@ -17,48 +15,29 @@ export function hasRecording(baseDir: string, testFilePath: string): boolean {
 }
 
 /**
- * Check if a turn recording exists
+ * Check if a step recording exists
  */
-export function hasTurnRecording(
+export function hasStepRecording(
   baseDir: string,
   testFilePath: string,
-  turnIndex: number
+  stepIndex: number
 ): boolean {
   const testDir = getTestRecordingDir(baseDir, testFilePath);
-  const filePath = getTurnFilePath(testDir, turnIndex);
+  const filePath = getStepFilePath(testDir, stepIndex);
   return existsSync(filePath);
 }
 
 /**
- * Load script step output from recording
- */
-export async function loadScriptStepOutput(
-  baseDir: string,
-  testFilePath: string,
-  stepIndex: number
-): Promise<{ variables: Variables; skipped?: boolean } | null> {
-  const testDir = getTestRecordingDir(baseDir, testFilePath);
-  const filePath = getScriptStepFilePath(testDir, stepIndex);
-
-  if (!existsSync(filePath)) {
-    return null;
-  }
-
-  const content = await readFile(filePath, "utf-8");
-  return JSON.parse(content);
-}
-
-/**
- * Create a replay event generator for a turn
+ * Create a replay event generator for a step
  * Events are returned with their original timestamps preserved
  */
 export async function* replayEvents(
   baseDir: string,
   testFilePath: string,
-  turnIndex: number
+  stepIndex: number
 ): AsyncGenerator<TimestampedEvent> {
   const testDir = getTestRecordingDir(baseDir, testFilePath);
-  const filePath = getTurnFilePath(testDir, turnIndex);
+  const filePath = getStepFilePath(testDir, stepIndex);
 
   if (!existsSync(filePath)) {
     throw new Error(`Recording not found: ${filePath}`);

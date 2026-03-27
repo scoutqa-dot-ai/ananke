@@ -79,7 +79,6 @@ function createScriptRunner(
       passed: true,
       assertion: "script",
       path: ctx.path,
-      reason: output.reason,
       variables: Object.keys(output.variables).length > 0 ? output.variables : undefined,
     };
   };

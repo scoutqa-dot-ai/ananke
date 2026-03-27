@@ -33,9 +33,7 @@ import {
 import {
   getTestRecordingDir,
   createRecordingGenerator,
-  recordScriptStepOutput,
   replayEvents,
-  loadScriptStepOutput,
 } from "../recording/index.js";
 import type { Logger } from "../logger.js";
 
@@ -106,66 +104,31 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
 
     try {
       if (isScriptStep(step)) {
-        // Script step — run script, set variables, no message to agent
+        // Script step — always execute (even during replay)
         logger.debug(`  Step ${i + 1}: [script]`);
 
-        if (testReplayDir) {
-          // Replay mode: load script output from recording
-          const scriptOutput = await loadScriptStepOutput(replayDir!, relativeTestPath, i);
-          if (scriptOutput) {
-            if (scriptOutput.skipped) {
-              logger.debug("  Script step skipped test (replay)");
-              return {
-                testName: test.name,
-                passed: true,
-                skipped: true,
-                testData: buildTestData(turns, startTs),
-                failures: [],
-              };
-            }
-            mergeVariables(variables, scriptOutput.variables ?? {}, "script step (replay)", logger);
-          }
-        } else {
-          // Normal/record mode: execute script
-          const scriptConfig = normalizeScriptConfig(step.script);
-          const ananke = buildAnankeInput({
-            turns,
-            variables,
-            turnIndex: null,
-          });
+        const scriptConfig = normalizeScriptConfig(step.script);
+        const ananke = buildAnankeInput({
+          turns,
+          variables,
+          turnIndex: null,
+        });
 
-          const scriptResult = await executeScript(scriptConfig, ananke, { logger });
+        const scriptResult = await executeScript(scriptConfig, ananke, { logger });
 
-          if (scriptResult.exitCode !== 0) {
-            // Non-zero exit = skip test (precondition not met)
-            logger.debug(`  Script step skipped test: ${scriptResult.stderr}`);
-            if (testRecordingDir) {
-              await recordScriptStepOutput(testRecordingDir, i, {
-                variables: {},
-                skipped: true,
-              });
-            }
-            return {
-              testName: test.name,
-              passed: true,
-              skipped: true,
-              testData: buildTestData(turns, startTs),
-              failures: [],
-            };
-          }
-
-          const { output } = scriptResult;
-
-          // Merge variables
-          mergeVariables(variables, output.variables, "script step", logger);
-
-          // Record script step output
-          if (testRecordingDir) {
-            await recordScriptStepOutput(testRecordingDir, i, {
-              variables: output.variables,
-            });
-          }
+        if (scriptResult.exitCode !== 0) {
+          // Non-zero exit = skip test (precondition not met)
+          logger.debug(`  Script step skipped test: ${scriptResult.stderr}`);
+          return {
+            testName: test.name,
+            passed: true,
+            skipped: true,
+            testData: buildTestData(turns, startTs),
+            failures: [],
+          };
         }
+
+        mergeVariables(variables, scriptResult.output.variables, "script step", logger);
 
         const varKeys = Object.keys(variables);
         if (varKeys.length > 0) {

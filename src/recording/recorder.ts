@@ -1,7 +1,6 @@
 import { mkdir, writeFile, appendFile } from "fs/promises";
 import { join, dirname } from "path";
 import type { TimestampedEvent } from "../client/events.js";
-import type { Variables } from "../config/interpolate.js";
 
 /**
  * Get the recording directory path for a test file
@@ -14,10 +13,10 @@ export function getTestRecordingDir(
 }
 
 /**
- * Get the path for a turn's event file
+ * Get the path for a step's event file
  */
-export function getTurnFilePath(testDir: string, turnIndex: number): string {
-  return join(testDir, `step-${turnIndex}.jsonl`);
+export function getStepFilePath(testDir: string, stepIndex: number): string {
+  return join(testDir, `step-${stepIndex}.jsonl`);
 }
 
 /**
@@ -28,36 +27,16 @@ export async function ensureRecordingDir(dirPath: string): Promise<void> {
 }
 
 /**
- * Record a single event to a turn file
+ * Record a single event to a step file
  */
 export async function recordEvent(
   testDir: string,
-  turnIndex: number,
+  stepIndex: number,
   event: TimestampedEvent
 ): Promise<void> {
-  const filePath = getTurnFilePath(testDir, turnIndex);
+  const filePath = getStepFilePath(testDir, stepIndex);
   await ensureRecordingDir(dirname(filePath));
   await appendFile(filePath, JSON.stringify(event) + "\n");
-}
-
-/**
- * Get the path for a script step's output file
- */
-export function getScriptStepFilePath(testDir: string, stepIndex: number): string {
-  return join(testDir, `script-step-${stepIndex}.json`);
-}
-
-/**
- * Record script step output
- */
-export async function recordScriptStepOutput(
-  testDir: string,
-  stepIndex: number,
-  output: { variables: Variables; skipped?: boolean }
-): Promise<void> {
-  const filePath = getScriptStepFilePath(testDir, stepIndex);
-  await ensureRecordingDir(dirname(filePath));
-  await writeFile(filePath, JSON.stringify(output, null, 2));
 }
 
 /**
@@ -66,18 +45,18 @@ export async function recordScriptStepOutput(
 export function createRecordingGenerator(
   events: AsyncGenerator<TimestampedEvent>,
   testDir: string,
-  turnIndex: number
+  stepIndex: number
 ): AsyncGenerator<TimestampedEvent> {
-  return recordEvents(events, testDir, turnIndex);
+  return recordEvents(events, testDir, stepIndex);
 }
 
 async function* recordEvents(
   events: AsyncGenerator<TimestampedEvent>,
   testDir: string,
-  turnIndex: number
+  stepIndex: number
 ): AsyncGenerator<TimestampedEvent> {
   await ensureRecordingDir(testDir);
-  const filePath = getTurnFilePath(testDir, turnIndex);
+  const filePath = getStepFilePath(testDir, stepIndex);
 
   // Clear/create the file
   await writeFile(filePath, "");

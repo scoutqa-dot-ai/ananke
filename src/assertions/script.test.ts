@@ -53,16 +53,6 @@ describe("assertion script — unified contract", () => {
     expect(result.passed).toBe(true);
   });
 
-  it("captures reason from script stdout", async () => {
-    const turnData = makeTurnData({ assistantText: "hello" });
-    const result = await evaluateTurnAssertions(turnData, {
-      script: `echo '{"reason": "user verified"}'`,
-    } as any);
-    expect(result.passed).toBe(true);
-    const scriptResult = result.results.find((r) => r.assertion === "script");
-    expect(scriptResult?.reason).toBe("user verified");
-  });
-
   it("merges variables from assertion script into variable map", async () => {
     const turnData = makeTurnData({ assistantText: "hello" });
     const variables = { EXISTING: "old" };

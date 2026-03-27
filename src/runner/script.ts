@@ -31,8 +31,6 @@ export interface AnankeInput {
 /** Parsed stdout from any script */
 export interface ScriptOutput {
   variables: Variables;
-  message?: string;
-  reason?: string;
 }
 
 /** Full result of executing a script */
@@ -258,26 +256,10 @@ function parseScriptOutput(
     }
   }
 
-  // Extract message
-  if (obj.message !== undefined) {
-    if (typeof obj.message !== "string") {
-      throw new Error(`Script "message" must be a string`);
-    }
-    output.message = obj.message;
+  const varCount = Object.keys(output.variables).length;
+  if (varCount > 0) {
+    logger?.debug(`[script] Variables: ${Object.keys(output.variables).join(", ")}`);
   }
-
-  // Extract reason
-  if (obj.reason !== undefined) {
-    if (typeof obj.reason !== "string") {
-      throw new Error(`Script "reason" must be a string`);
-    }
-    output.reason = obj.reason;
-  }
-
-  const fields = Object.keys(output).filter(
-    (k) => k !== "variables" || Object.keys(output.variables).length > 0,
-  );
-  logger?.debug(`[script] Output fields: ${fields.join(", ") || "(empty)"}`);
 
   return output;
 }
