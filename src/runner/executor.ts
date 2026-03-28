@@ -5,6 +5,7 @@ import type { ProtocolClient } from "../client/types.js";
 import {
   interpolate,
   interpolateObject,
+  validateEnvRefs,
   type Variables,
 } from "../config/interpolate.js";
 import type {
@@ -73,6 +74,10 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
   const startTs = Date.now();
   const steps: StepData[] = [];
   const failures: string[] = [];
+
+  // Validate all ${ENV.*} references in the test file are set before running any steps
+  // (config env refs are caught by interpolateObject below)
+  validateEnvRefs(test);
 
   // Validate and prepare named assertions from config
   const namedAssertions: NamedAssertions = config.assertions ?? {};

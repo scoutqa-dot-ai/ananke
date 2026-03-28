@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { interpolate, interpolateObject } from "./interpolate.js";
+import { interpolate, interpolateObject, validateEnvRefs, extractEnvRefs } from "./interpolate.js";
 
 describe("interpolate", () => {
   it("replaces ${VAR.NAME} with variable value", () => {
@@ -84,5 +84,45 @@ describe("interpolateObject", () => {
       { X: "str" }
     );
     expect(result).toEqual({ values: [1, true, null, "str"] });
+  });
+});
+
+describe("extractEnvRefs", () => {
+  it("extracts env refs from strings", () => {
+    expect(extractEnvRefs("${ENV.FOO} and ${ENV.BAR}")).toEqual(["FOO", "BAR"]);
+  });
+
+  it("extracts from nested objects and arrays", () => {
+    const refs = extractEnvRefs({
+      a: "${ENV.X}",
+      b: [{ c: "${ENV.Y}" }],
+      d: 42,
+    });
+    expect(refs).toEqual(["X", "Y"]);
+  });
+
+  it("deduplicates", () => {
+    expect(extractEnvRefs("${ENV.A} ${ENV.A}")).toEqual(["A"]);
+  });
+
+  it("ignores VAR refs", () => {
+    expect(extractEnvRefs("${VAR.X}")).toEqual([]);
+  });
+});
+
+describe("validateEnvRefs", () => {
+  it("passes when all env vars are set", () => {
+    process.env.VALIDATE_TEST = "ok";
+    expect(() => validateEnvRefs("${ENV.VALIDATE_TEST}")).not.toThrow();
+    delete process.env.VALIDATE_TEST;
+  });
+
+  it("throws listing all missing env vars", () => {
+    delete process.env.MISSING_A;
+    delete process.env.MISSING_B;
+    expect(() => validateEnvRefs({
+      x: "${ENV.MISSING_A}",
+      y: "${ENV.MISSING_B}",
+    })).toThrow("Missing environment variables: ${ENV.MISSING_A}, ${ENV.MISSING_B}");
   });
 });
