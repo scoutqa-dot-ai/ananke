@@ -1,11 +1,14 @@
 # Report
 
-`--report <dir>` records protocol events and writes a `report.json` per test. Use `--replay <dir>` to re-run assertions against saved events without hitting the remote server.
+Every test run captures protocol events and writes a `report.json` per test. By default, reports go to `.ananke/reports/<ISO-date>/`. Use `--report <dir>` to override the output directory, or `--replay <dir>` to re-run assertions against saved events without hitting the remote server.
 
 ## Usage
 
 ```bash
-# Run tests, write events + report
+# Run tests (reports to .ananke/reports/<ISO-date>/)
+ananke run
+
+# Run tests with explicit report directory
 ananke run --report ./reports/
 
 # Replay from saved events (no remote calls)
@@ -17,7 +20,7 @@ ananke run --replay ./reports/
 ## Directory Structure
 
 ```
-reports/
+.ananke/reports/2026-03-28T14-30-00-000Z/
   tests/
     v0-login-form-app.test.yaml/
       report.json

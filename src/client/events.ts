@@ -77,7 +77,7 @@ export type ProtocolEventType = ProtocolEvent["type"];
 
 /**
  * Protocol event with timestamp added at arrival time.
- * Used by clients, recorder, and replayer.
+ * Used by clients, event writer, and replayer.
  */
 export type TimestampedProtocolEvent = ProtocolEvent & { "ananke:ts": number };
 

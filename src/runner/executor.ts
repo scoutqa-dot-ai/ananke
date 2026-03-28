@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { writeFile, mkdir } from "node:fs/promises";
-import { relative, join } from "node:path";
+import { relative } from "node:path";
 import { createClient } from "../client/index.js";
 import type { ProtocolClient } from "../client/types.js";
 import {
@@ -15,7 +14,8 @@ import type {
   StepData,
 } from "../types/index.js";
 import { isMessageStep, isResumeStep, isScriptStep, type Step } from "../types/test.js";
-import { executeMessageStep, executeResumeStep, collectStepData, withPromptSent } from "./step.js";
+import type { TimestampedEvent } from "../client/events.js";
+import { collectStepData, withPromptSent } from "./step.js";
 import {
   executeScript,
   normalizeScriptConfig,
@@ -31,10 +31,10 @@ import {
   type EvaluationOptions,
 } from "../assertions/index.js";
 import {
-  getTestRecordingDir,
-  createRecordingGenerator,
+  getTestReportDir,
+  createEventWriter,
   replayEvents,
-} from "../recording/index.js";
+} from "../report/index.js";
 import type { Logger } from "../logger.js";
 
 export interface TestRunnerOptions {
@@ -42,6 +42,7 @@ export interface TestRunnerOptions {
   test: TestFile;
   testFilePath: string;
   logger: Logger;
+  /** Report directory (required when not replaying) */
   reportDir?: string;
   replayDir?: string;
 }
@@ -82,15 +83,15 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
   // Mutable variable map — accumulated throughout test execution
   const variables: Variables = {};
 
-  // Get recording directory for this test (use relative path)
+  // Get per-test directory for report or replay
   const relativeTestPath = relative(process.cwd(), testFilePath);
-  const testRecordingDir = reportDir ? getTestRecordingDir(reportDir, relativeTestPath) : undefined;
-  const testReplayDir = replayDir ? getTestRecordingDir(replayDir, relativeTestPath) : undefined;
+  const testReplayDir = replayDir ? getTestReportDir(replayDir, relativeTestPath) : undefined;
+  const testReportDir = !testReplayDir && reportDir ? getTestReportDir(reportDir, relativeTestPath) : undefined;
 
   if (testReplayDir) {
     logger.trace(`[Replay] Loading from: ${testReplayDir}`);
-  } else if (testRecordingDir) {
-    logger.trace(`[Report] Saving to: ${testRecordingDir}`);
+  } else {
+    logger.trace(`[Report] Saving to: ${testReportDir}`);
   }
 
   // Interpolate config with variables will happen after script steps set vars
@@ -203,49 +204,36 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
       // Agent-facing steps below — ensure client exists
       ensureClient();
 
-      let stepData: StepData;
+      // Build interpolated step input and resolve event source (replay or live)
+      let stepInput;
+      let events: AsyncGenerator<TimestampedEvent>;
 
-      if (testReplayDir) {
-        // Replay mode
-        let stepInput;
-        if (isResumeStep(step)) {
+      if (isResumeStep(step)) {
+        stepInput = buildStepInput(step, { resume: interpolate(step.resume, variables) });
+        if (testReplayDir) {
           logger.debug(`  Step ${i + 1}: [resume] (replay)`);
-          stepInput = buildStepInput(step, { resume: interpolate(step.resume, variables) });
-        } else if (isMessageStep(step)) {
-          const userMessage = interpolate(step.message, variables);
-          logger.debug(`  Step ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}" (replay)`);
-          stepInput = buildStepInput(step, { message: userMessage });
+          events = replayEvents(replayDir!, relativeTestPath, stepIndex);
         } else {
-          throw new Error(`Unknown step type at index ${i}`);
-        }
-        const events = replayEvents(replayDir!, relativeTestPath, stepIndex);
-        stepData = await collectStepData(events, stepIndex, stepInput, { logger });
-      } else if (isResumeStep(step)) {
-        // Resume step - no message, just observe
-        if (!client!.resume) {
-          throw new Error("Client does not support connect operation");
-        }
-        const stepInput = buildStepInput(step, { resume: interpolate(step.resume, variables) });
-        if (testRecordingDir) {
-          const events = createRecordingGenerator(withPromptSent(client!.resume()), testRecordingDir, stepIndex);
-          stepData = await collectStepData(events, stepIndex, stepInput, { logger });
-        } else {
-          stepData = await executeResumeStep(client!, stepIndex, stepInput, { logger });
+          if (!client!.resume) {
+            throw new Error("Client does not support connect operation");
+          }
+          events = createEventWriter(withPromptSent(client!.resume()), testReportDir!, stepIndex);
         }
       } else if (isMessageStep(step)) {
-        // Message step
         const userMessage = interpolate(step.message, variables);
-        logger.debug(`  Step ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
-        const stepInput = buildStepInput(step, { message: userMessage });
-        if (testRecordingDir) {
-          const events = createRecordingGenerator(withPromptSent(client!.message(userMessage)), testRecordingDir, stepIndex);
-          stepData = await collectStepData(events, stepIndex, stepInput, { logger });
+        stepInput = buildStepInput(step, { message: userMessage });
+        if (testReplayDir) {
+          logger.debug(`  Step ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}" (replay)`);
+          events = replayEvents(replayDir!, relativeTestPath, stepIndex);
         } else {
-          stepData = await executeMessageStep(client!, userMessage, stepIndex, stepInput, { logger });
+          logger.debug(`  Step ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
+          events = createEventWriter(withPromptSent(client!.message(userMessage)), testReportDir!, stepIndex);
         }
       } else {
         throw new Error(`Unknown step type at index ${i}`);
       }
+
+      const stepData = await collectStepData(events, stepIndex, stepInput, { logger });
 
       steps.push(stepData);
 

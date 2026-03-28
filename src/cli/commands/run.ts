@@ -9,7 +9,7 @@ import {
   DEFAULT_TEST_PATTERNS,
 } from '../../config/index.js';
 import { runTest, type TestResult } from '../../runner/index.js';
-import { getTestRecordingDir } from '../../recording/index.js';
+import { getTestReportDir } from '../../report/index.js';
 import { formatDuration } from '../../runner/format.js';
 import { createLogger } from '../../logger.js';
 
@@ -27,12 +27,15 @@ export const runCommand = new Command('run')
   .option('-c, --config <path>', 'Path to config file')
   .option('-d, --dry-run', 'Validate tests without executing')
   .option('--json', 'Output results as JSON')
-  .option('--report <dir>', 'Record events and write report to directory')
+  .option('--report <dir>', 'Write events and report to directory (default: .ananke/reports/<ISO-date>)')
   .option('--replay <dir>', 'Replay events from directory')
   .action(async (patterns: string[], options: RunOptions) => {
     const jsonOutput = options.json ?? false;
-    const reportDir = options.report;
     const replayDir = options.replay;
+    // Default report dir to .ananke/reports/<ISO-date> when not replaying
+    const reportDir = replayDir
+      ? undefined
+      : options.report ?? join('.ananke', 'reports', new Date().toISOString().replace(/[:.]/g, '-'));
 
     // Create logger from ANANKE_LOG_LEVEL env var (default: info)
     const logger = createLogger({ json: jsonOutput });
@@ -154,12 +157,13 @@ export const runCommand = new Command('run')
         // Write report.json to per-test directory
         if (reportDir) {
           const relPath = relative(process.cwd(), filePath);
-          const testDir = getTestRecordingDir(reportDir, relPath);
+          const testDir = getTestReportDir(reportDir, relPath);
           await mkdir(testDir, { recursive: true });
           await writeFile(
             join(testDir, 'report.json'),
             JSON.stringify(result, null, 2) + '\n',
           );
+          logger.debug(`  Report: ${join(testDir, 'report.json')}`);
         }
 
         results.push({ ...result, filePath } as TestResult & { filePath: string });

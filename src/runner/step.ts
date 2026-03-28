@@ -1,4 +1,3 @@
-import type { ProtocolClient } from "../client/types.js";
 import type { TimestampedProtocolEvent, TimestampedEvent } from "../client/events.js";
 import type { StepData, StepInput, StepTimings, ToolCall } from "../types/index.js";
 import type { Logger } from "../logger.js";
@@ -13,43 +12,13 @@ interface PendingToolCall {
 
 /**
  * Prepend a synthetic ananke:prompt_sent event to an event stream.
- * This records the send timestamp so TTF calculations work in both live and replay.
+ * This captures the send timestamp so TTF calculations work in both live and replay.
  */
 export async function* withPromptSent(
   events: AsyncGenerator<TimestampedEvent>,
 ): AsyncGenerator<TimestampedEvent> {
   yield { type: "ananke:prompt_sent", "ananke:ts": Date.now() };
   yield* events;
-}
-
-/**
- * Execute a message step and collect data
- */
-export async function executeMessageStep(
-  client: ProtocolClient,
-  userMessage: string,
-  stepIndex: number,
-  input: StepInput,
-  options?: { logger?: Logger },
-): Promise<StepData> {
-  const events = withPromptSent(client.message(userMessage));
-  return collectStepData(events, stepIndex, input, options);
-}
-
-/**
- * Execute a resume step (no message, just observe) and collect data
- */
-export async function executeResumeStep(
-  client: ProtocolClient,
-  stepIndex: number,
-  input: StepInput,
-  options?: { logger?: Logger },
-): Promise<StepData> {
-  if (!client.resume) {
-    throw new Error("Client does not support resume operation");
-  }
-  const events = withPromptSent(client.resume());
-  return collectStepData(events, stepIndex, input, options);
 }
 
 export interface CollectOptions {

@@ -47,7 +47,7 @@ export async function findTestFiles(
     const matches = glob(pattern, { cwd });
     for await (const match of matches) {
       const fullPath = resolve(cwd, match);
-      // Skip directories (e.g., recording directories that match *.test.yaml pattern)
+      // Skip directories (e.g., report directories that match *.test.yaml pattern)
       if (statSync(fullPath).isFile()) {
         files.push(fullPath);
       }
