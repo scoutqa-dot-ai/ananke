@@ -17,7 +17,7 @@ During assertion evaluation, the system has access to this data:
 ```typescript
 interface StepData {
   stepIndex: number;
-  type: "message" | "resume" | "script";
+  input: StepInput; // step definition (expect stripped, values interpolated)
   toolCalls: ToolCall[]; // array of objects
   assistantText: string; // full response text
   startTs: number; // first event timestamp (ms)

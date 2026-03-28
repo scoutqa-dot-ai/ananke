@@ -14,7 +14,7 @@ import type {
   TestData,
   StepData,
 } from "../types/index.js";
-import { isMessageStep, isResumeStep, isScriptStep } from "../types/test.js";
+import { isMessageStep, isResumeStep, isScriptStep, type Step } from "../types/test.js";
 import { executeMessageStep, executeResumeStep, collectStepData, withPromptSent } from "./step.js";
 import {
   executeScript,
@@ -53,6 +53,14 @@ export interface TestResult {
   testData: TestData;
   error?: string;
   failures: string[];
+}
+
+/**
+ * Build a StepInput from a step definition, stripping expect.
+ */
+function buildStepInput(step: Step, overrides?: Record<string, unknown>): Record<string, unknown> {
+  const { expect: _expect, ...rest } = step as Record<string, unknown>;
+  return { ...rest, ...overrides };
 }
 
 /**
@@ -137,7 +145,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
 
           const scriptStepData: StepData = {
             stepIndex: i,
-            type: "script",
+            input: buildStepInput(step),
             toolCalls: [],
             assistantText: "",
             startTs: scriptStartTs,
@@ -171,7 +179,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
 
         const scriptStepData: StepData = {
           stepIndex: i,
-          type: "script",
+          input: buildStepInput(step),
           toolCalls: [],
           assistantText: "",
           startTs: scriptStartTs,
@@ -197,39 +205,43 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
 
       let stepData: StepData;
 
-      // Determine step type for data tagging
-      const stepType = isResumeStep(step) ? "resume" as const : "message" as const;
-
       if (testReplayDir) {
         // Replay mode
+        let stepInput;
         if (isResumeStep(step)) {
           logger.debug(`  Step ${i + 1}: [resume] (replay)`);
+          stepInput = buildStepInput(step, { resume: interpolate(step.resume, variables) });
         } else if (isMessageStep(step)) {
           const userMessage = interpolate(step.message, variables);
           logger.debug(`  Step ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}" (replay)`);
+          stepInput = buildStepInput(step, { message: userMessage });
+        } else {
+          throw new Error(`Unknown step type at index ${i}`);
         }
         const events = replayEvents(replayDir!, relativeTestPath, stepIndex);
-        stepData = await collectStepData(events, stepIndex, stepType, { logger });
+        stepData = await collectStepData(events, stepIndex, stepInput, { logger });
       } else if (isResumeStep(step)) {
         // Resume step - no message, just observe
         if (!client!.resume) {
           throw new Error("Client does not support connect operation");
         }
+        const stepInput = buildStepInput(step, { resume: interpolate(step.resume, variables) });
         if (testRecordingDir) {
           const events = createRecordingGenerator(withPromptSent(client!.resume()), testRecordingDir, stepIndex);
-          stepData = await collectStepData(events, stepIndex, "resume", { logger });
+          stepData = await collectStepData(events, stepIndex, stepInput, { logger });
         } else {
-          stepData = await executeResumeStep(client!, stepIndex, { logger });
+          stepData = await executeResumeStep(client!, stepIndex, stepInput, { logger });
         }
       } else if (isMessageStep(step)) {
         // Message step
         const userMessage = interpolate(step.message, variables);
         logger.debug(`  Step ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
+        const stepInput = buildStepInput(step, { message: userMessage });
         if (testRecordingDir) {
           const events = createRecordingGenerator(withPromptSent(client!.message(userMessage)), testRecordingDir, stepIndex);
-          stepData = await collectStepData(events, stepIndex, "message", { logger });
+          stepData = await collectStepData(events, stepIndex, stepInput, { logger });
         } else {
-          stepData = await executeMessageStep(client!, userMessage, stepIndex, { logger });
+          stepData = await executeMessageStep(client!, userMessage, stepIndex, stepInput, { logger });
         }
       } else {
         throw new Error(`Unknown step type at index ${i}`);

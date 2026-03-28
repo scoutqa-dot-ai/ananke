@@ -16,7 +16,7 @@ const makeToolCall = (
 
 const makeStepData = (overrides: Partial<StepData> = {}): StepData => ({
   stepIndex: 0,
-  type: "message",
+  input: { message: "" },
   toolCalls: [],
   assistantText: "",
   startTs: 1000,

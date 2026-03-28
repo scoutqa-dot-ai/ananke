@@ -285,7 +285,7 @@ The `steps` array in the `ANANKE` input contains these objects (all step types p
 ```typescript
 interface StepData {
   stepIndex: number;
-  type: "message" | "resume" | "script";
+  input: StepInput; // step definition (expect stripped, values interpolated)
   toolCalls: ToolCall[];
   assistantText: string;
   startTs: number;

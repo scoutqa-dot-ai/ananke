@@ -56,7 +56,7 @@ interface TestData {
 
 interface StepData {
   stepIndex: number;
-  type: "message" | "resume" | "script";
+  input: StepInput; // step definition from test file (expect stripped, values interpolated)
   toolCalls: ToolCall[];
   assistantText: string;
   startTs: number;

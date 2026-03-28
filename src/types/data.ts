@@ -15,8 +15,8 @@ export interface StepTimings {
   ttfTextMs: number | null;
 }
 
-/** Step type tag — matches the test file step types */
-export type StepType = "message" | "resume" | "script";
+/** Step input — the step definition from the test file, without expect (stored separately as assertions) */
+export type StepInput = Record<string, unknown>;
 
 /** Per-step assertion evaluation result (stored for reporting) */
 export interface StepAssertionResult {
@@ -27,7 +27,8 @@ export interface StepAssertionResult {
 
 export interface StepData {
   stepIndex: number;
-  type: StepType;
+  /** The step definition from the test file (expect stripped; values interpolated) */
+  input: StepInput;
   toolCalls: ToolCall[];
   assistantText: string;
   startTs: number;
