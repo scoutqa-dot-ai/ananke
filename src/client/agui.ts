@@ -4,9 +4,9 @@ import {
   runHttpRequest,
   transformHttpEventStream,
 } from "@ag-ui/client";
-import { convertToAGUIEvent } from "./events.js";
+import { toProtocolEvent } from "./events.js";
 import { DEFAULT_CLIENT_TIMEOUT_MS, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_MS } from "../constants.js";
-import type { AGUITimestampedEvent } from "./events.js";
+import type { TimestampedProtocolEvent } from "./events.js";
 import type { Logger } from "../logger.js";
 
 export interface AGUIClientOptions {
@@ -62,7 +62,7 @@ export class AGUIClient {
   /**
    * Send a message and stream events via SSE (agent/run)
    */
-  async *message(text: string): AsyncGenerator<AGUITimestampedEvent> {
+  async *message(text: string): AsyncGenerator<TimestampedProtocolEvent> {
     const input: RunAgentInput = {
       context: [],
       forwardedProps: this.forwardedProps,
@@ -79,7 +79,7 @@ export class AGUIClient {
   /**
    * Resume an existing thread without sending a message (agent/connect)
    */
-  async *resume(): AsyncGenerator<AGUITimestampedEvent> {
+  async *resume(): AsyncGenerator<TimestampedProtocolEvent> {
     const input: RunAgentInput = {
       context: [],
       forwardedProps: this.forwardedProps,
@@ -99,8 +99,8 @@ export class AGUIClient {
   private async *executeRequest(
     method: string,
     input: RunAgentInput
-  ): AsyncGenerator<AGUITimestampedEvent> {
-    const events: AGUITimestampedEvent[] = [];
+  ): AsyncGenerator<TimestampedProtocolEvent> {
+    const events: TimestampedProtocolEvent[] = [];
     let receivedMeaningfulEvents = false;
 
     const executeStream = async (attempt: number): Promise<void> => {
@@ -145,7 +145,7 @@ export class AGUIClient {
             next: (event) => {
               receivedMeaningfulEvents = true;
               this.logger?.trace(`[AG-UI] Event: ${event.type}`);
-              const aguiEvent = convertToAGUIEvent(event);
+              const aguiEvent = toProtocolEvent(event);
               if (aguiEvent) {
                 // Add timestamp at event arrival time
                 events.push({ ...aguiEvent, "ananke:ts": Date.now() });

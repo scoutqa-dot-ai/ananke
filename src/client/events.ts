@@ -1,5 +1,5 @@
 /**
- * AG-UI event types based on the protocol specification
+ * Protocol event types based on the AG-UI specification
  */
 
 export interface RunStartedEvent {
@@ -61,7 +61,7 @@ export interface ToolCallResultEvent {
   result: string;
 }
 
-export type AGUIEvent =
+export type ProtocolEvent =
   | RunStartedEvent
   | RunFinishedEvent
   | RunErrorEvent
@@ -73,13 +73,13 @@ export type AGUIEvent =
   | ToolCallEndEvent
   | ToolCallResultEvent;
 
-export type AGUIEventType = AGUIEvent["type"];
+export type ProtocolEventType = ProtocolEvent["type"];
 
 /**
- * AG-UI event with timestamp added at arrival time.
+ * Protocol event with timestamp added at arrival time.
  * Used by clients, recorder, and replayer.
  */
-export type AGUITimestampedEvent = AGUIEvent & { "ananke:ts": number };
+export type TimestampedProtocolEvent = ProtocolEvent & { "ananke:ts": number };
 
 /**
  * Ananke-specific synthetic event emitted when a prompt is sent.
@@ -93,17 +93,17 @@ export interface PromptSentEvent {
  * Full event union including ananke-internal events.
  * Used by the runner's collectStepData.
  */
-export type TimestampedEvent = (AGUIEvent | PromptSentEvent) & { "ananke:ts": number };
+export type TimestampedEvent = (ProtocolEvent | PromptSentEvent) & { "ananke:ts": number };
 
 
 /**
- * Convert a raw event object to a typed AGUIEvent.
+ * Convert a raw event object to a typed ProtocolEvent.
  * Accepts both the @ag-ui/client BaseEvent shape and the Zod-parsed shape.
  */
-export function convertToAGUIEvent(event: {
+export function toProtocolEvent(event: {
   type: string;
   [key: string]: unknown;
-}): AGUIEvent | null {
+}): ProtocolEvent | null {
   switch (event.type) {
     case "RUN_STARTED":
       return {

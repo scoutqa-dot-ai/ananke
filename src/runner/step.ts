@@ -1,5 +1,5 @@
 import type { ProtocolClient } from "../client/types.js";
-import type { AGUITimestampedEvent, TimestampedEvent } from "../client/events.js";
+import type { TimestampedProtocolEvent, TimestampedEvent } from "../client/events.js";
 import type { StepData, StepTimings, ToolCall } from "../types/index.js";
 import type { Logger } from "../logger.js";
 import { truncateLine, formatDuration } from "./format.js";
@@ -151,7 +151,7 @@ export async function collectStepData(
   };
 }
 
-function formatEventDetail(event: AGUITimestampedEvent): string {
+function formatEventDetail(event: TimestampedProtocolEvent): string {
   switch (event.type) {
     case "TOOL_CALL_START":
       return `: ${event.toolCallName}`;
@@ -165,7 +165,7 @@ function formatEventDetail(event: AGUITimestampedEvent): string {
 }
 
 function handleEvent(
-  event: AGUITimestampedEvent,
+  event: TimestampedProtocolEvent,
   toolCalls: ToolCall[],
   pendingToolCalls: Map<string, PendingToolCall>,
   onText: (text: string) => void,
@@ -221,6 +221,6 @@ function handleEvent(
     }
 
     case "RUN_ERROR":
-      throw new Error(`AG-UI run error: ${event.message}`);
+      throw new Error(`Protocol run error: ${event.message}`);
   }
 }

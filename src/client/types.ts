@@ -1,4 +1,4 @@
-import type { AGUITimestampedEvent } from "./events.js";
+import type { TimestampedProtocolEvent } from "./events.js";
 
 /**
  * Common interface for all protocol clients (AG-UI, A2A, MCP)
@@ -7,13 +7,13 @@ export interface ProtocolClient {
   /**
    * Send a user message and stream response events
    */
-  message(text: string): AsyncGenerator<AGUITimestampedEvent>;
+  message(text: string): AsyncGenerator<TimestampedProtocolEvent>;
 
   /**
    * Resume an existing thread/session without sending a message
    * Optional - not all protocols support this
    */
-  resume?(): AsyncGenerator<AGUITimestampedEvent>;
+  resume?(): AsyncGenerator<TimestampedProtocolEvent>;
 
   /**
    * Close the client connection

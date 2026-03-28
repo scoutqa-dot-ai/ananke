@@ -7,7 +7,7 @@ export interface ToolCall {
 
 /** Time-to-first metrics (ms from send to first event of each kind) */
 export interface StepTimings {
-  /** Time to first AG-UI event of any type */
+  /** Time to first protocol event of any type */
   ttfEventMs: number | null;
   /** Time to first TOOL_CALL_START event */
   ttfToolMs: number | null;

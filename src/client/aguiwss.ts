@@ -2,9 +2,9 @@ import { Client as StompClient, IMessage } from "@stomp/stompjs";
 import WebSocket from "ws";
 import { z } from "zod";
 
-import { convertToAGUIEvent } from "./events.js";
+import { toProtocolEvent } from "./events.js";
 import { DEFAULT_CLIENT_TIMEOUT_MS } from "../constants.js";
-import type { AGUITimestampedEvent } from "./events.js";
+import type { TimestampedProtocolEvent } from "./events.js";
 import type { Logger } from "../logger.js";
 import { truncateLine } from "../runner/format.js";
 
@@ -112,9 +112,9 @@ export class AGUIWSSClient {
     this.wsStompHeaders = options.wsStompHeaders ?? {};
   }
 
-  async *message(text: string): AsyncGenerator<AGUITimestampedEvent> {
+  async *message(text: string): AsyncGenerator<TimestampedProtocolEvent> {
     let processedEventCount = 0;
-    const eventQueue: AGUITimestampedEvent[] = [];
+    const eventQueue: TimestampedProtocolEvent[] = [];
     let done = false;
     let error: Error | undefined;
     let resolveWaiting: (() => void) | undefined;
@@ -151,7 +151,7 @@ export class AGUIWSSClient {
         if (!parsed.success) continue;
         const event = parsed.data;
 
-        const aguiEvent = convertToAGUIEvent(event);
+        const aguiEvent = toProtocolEvent(event);
         if (aguiEvent) {
           eventQueue.push({ ...aguiEvent, "ananke:ts": Date.now() });
 
