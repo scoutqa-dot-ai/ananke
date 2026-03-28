@@ -17,10 +17,14 @@ During assertion evaluation, the system has access to this data:
 ```typescript
 interface StepData {
   stepIndex: number;
+  type: "message" | "resume" | "script";
   toolCalls: ToolCall[]; // array of objects
   assistantText: string; // full response text
   startTs: number; // first event timestamp (ms)
   endTs: number; // last event timestamp (ms)
+  timings: StepTimings;
+  assertions?: StepAssertionResult; // present when step has assertions
+  exitCode?: number; // script steps only (non-zero = test skipped)
 }
 
 interface ToolCall {

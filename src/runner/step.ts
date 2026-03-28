@@ -1,6 +1,6 @@
 import type { ProtocolClient } from "../client/types.js";
 import type { TimestampedProtocolEvent, TimestampedEvent } from "../client/events.js";
-import type { StepData, StepTimings, ToolCall } from "../types/index.js";
+import type { StepData, StepTimings, StepType, ToolCall } from "../types/index.js";
 import type { Logger } from "../logger.js";
 import { truncateLine, formatDuration } from "./format.js";
 import { SLOW_TTF_TEXT_THRESHOLD_MS } from "../constants.js";
@@ -32,7 +32,7 @@ export async function executeMessageStep(
   options?: { logger?: Logger },
 ): Promise<StepData> {
   const events = withPromptSent(client.message(userMessage));
-  return collectStepData(events, stepIndex, options);
+  return collectStepData(events, stepIndex, "message", options);
 }
 
 /**
@@ -47,7 +47,7 @@ export async function executeResumeStep(
     throw new Error("Client does not support resume operation");
   }
   const events = withPromptSent(client.resume());
-  return collectStepData(events, stepIndex, options);
+  return collectStepData(events, stepIndex, "resume", options);
 }
 
 export interface CollectOptions {
@@ -61,6 +61,7 @@ export interface CollectOptions {
 export async function collectStepData(
   events: AsyncGenerator<TimestampedEvent>,
   stepIndex: number,
+  type: StepType,
   options?: CollectOptions,
 ): Promise<StepData> {
   const toolCalls: ToolCall[] = [];
@@ -143,6 +144,7 @@ export async function collectStepData(
 
   return {
     stepIndex,
+    type,
     toolCalls,
     assistantText,
     startTs: startTs ?? now,

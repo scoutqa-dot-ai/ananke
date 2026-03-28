@@ -34,7 +34,7 @@ describe("buildAnankeInput", () => {
   it("passes through provided values", () => {
     const input = buildAnankeInput({
       value: "test_value",
-      steps: [{ stepIndex: 0, toolCalls: [], assistantText: "hi", startTs: 0, endTs: 1, timings: { ttfEventMs: null, ttfToolMs: null, ttfTextMs: null } }],
+      steps: [{ stepIndex: 0, type: "message", toolCalls: [], assistantText: "hi", startTs: 0, endTs: 1, timings: { ttfEventMs: null, ttfToolMs: null, ttfTextMs: null } }],
       variables: { A: "1" },
       stepIndex: 2,
     });

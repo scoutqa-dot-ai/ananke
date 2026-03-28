@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { relative } from "node:path";
+import { writeFile, mkdir } from "node:fs/promises";
+import { relative, join } from "node:path";
 import { createClient } from "../client/index.js";
 import type { ProtocolClient } from "../client/types.js";
 import {
@@ -41,7 +42,7 @@ export interface TestRunnerOptions {
   test: TestFile;
   testFilePath: string;
   logger: Logger;
-  recordDir?: string;
+  reportDir?: string;
   replayDir?: string;
 }
 
@@ -58,7 +59,7 @@ export interface TestResult {
  * Run a single test file
  */
 export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
-  const { config, test, testFilePath, logger, recordDir, replayDir } = options;
+  const { config, test, testFilePath, logger, reportDir, replayDir } = options;
 
   const startTs = Date.now();
   const steps: StepData[] = [];
@@ -75,13 +76,13 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
 
   // Get recording directory for this test (use relative path)
   const relativeTestPath = relative(process.cwd(), testFilePath);
-  const testRecordingDir = recordDir ? getTestRecordingDir(recordDir, relativeTestPath) : undefined;
+  const testRecordingDir = reportDir ? getTestRecordingDir(reportDir, relativeTestPath) : undefined;
   const testReplayDir = replayDir ? getTestRecordingDir(replayDir, relativeTestPath) : undefined;
 
   if (testReplayDir) {
     logger.trace(`[Replay] Loading from: ${testReplayDir}`);
   } else if (testRecordingDir) {
-    logger.trace(`[Record] Saving to: ${testRecordingDir}`);
+    logger.trace(`[Report] Saving to: ${testRecordingDir}`);
   }
 
   // Interpolate config with variables will happen after script steps set vars
@@ -119,6 +120,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
         // Script step — always execute (even during replay)
         logger.debug(`  Step ${i + 1}: [script]`);
 
+        const scriptStartTs = Date.now();
         const scriptConfig = normalizeScriptConfig(step.script);
         const ananke = buildAnankeInput({
           steps,
@@ -127,10 +129,24 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
         });
 
         const scriptResult = await executeScript(scriptConfig, ananke, { logger });
+        const scriptEndTs = Date.now();
 
         if (scriptResult.exitCode !== 0) {
           // Non-zero exit = skip test (precondition not met)
           logger.debug(`  Script step skipped test: ${scriptResult.stderr}`);
+
+          const scriptStepData: StepData = {
+            stepIndex: i,
+            type: "script",
+            toolCalls: [],
+            assistantText: "",
+            startTs: scriptStartTs,
+            endTs: scriptEndTs,
+            timings: { ttfEventMs: null, ttfToolMs: null, ttfTextMs: null },
+            exitCode: scriptResult.exitCode,
+          };
+          steps.push(scriptStepData);
+
           return {
             testName: test.name,
             passed: true,
@@ -153,7 +169,19 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
           variables
         ) as ProjectConfig;
 
-        continue; // Script steps don't produce StepData
+        const scriptStepData: StepData = {
+          stepIndex: i,
+          type: "script",
+          toolCalls: [],
+          assistantText: "",
+          startTs: scriptStartTs,
+          endTs: scriptEndTs,
+          timings: { ttfEventMs: null, ttfToolMs: null, ttfTextMs: null },
+          exitCode: scriptResult.exitCode,
+        };
+        steps.push(scriptStepData);
+
+        continue; // Script steps don't go through agent flow below
       }
 
       if (isResumeStep(step)) {
@@ -169,6 +197,9 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
 
       let stepData: StepData;
 
+      // Determine step type for data tagging
+      const stepType = isResumeStep(step) ? "resume" as const : "message" as const;
+
       if (testReplayDir) {
         // Replay mode
         if (isResumeStep(step)) {
@@ -178,7 +209,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
           logger.debug(`  Step ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}" (replay)`);
         }
         const events = replayEvents(replayDir!, relativeTestPath, stepIndex);
-        stepData = await collectStepData(events, stepIndex, { logger });
+        stepData = await collectStepData(events, stepIndex, stepType, { logger });
       } else if (isResumeStep(step)) {
         // Resume step - no message, just observe
         if (!client!.resume) {
@@ -186,7 +217,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
         }
         if (testRecordingDir) {
           const events = createRecordingGenerator(withPromptSent(client!.resume()), testRecordingDir, stepIndex);
-          stepData = await collectStepData(events, stepIndex, { logger });
+          stepData = await collectStepData(events, stepIndex, "resume", { logger });
         } else {
           stepData = await executeResumeStep(client!, stepIndex, { logger });
         }
@@ -196,7 +227,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
         logger.debug(`  Step ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
         if (testRecordingDir) {
           const events = createRecordingGenerator(withPromptSent(client!.message(userMessage)), testRecordingDir, stepIndex);
-          stepData = await collectStepData(events, stepIndex, { logger });
+          stepData = await collectStepData(events, stepIndex, "message", { logger });
         } else {
           stepData = await executeMessageStep(client!, userMessage, stepIndex, { logger });
         }
@@ -222,6 +253,13 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
           stepIndex,
         };
         const evalResult = await evaluateStepAssertions(stepData, stepExpect!, evalOptions);
+
+        // Store assertion results on the step data
+        stepData.assertions = {
+          passed: evalResult.passed,
+          results: evalResult.results,
+          failures: evalResult.failures,
+        };
 
         if (!evalResult.passed) {
           for (const failure of evalResult.failures) {

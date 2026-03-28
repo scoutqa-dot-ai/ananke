@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { relative, join } from 'node:path';
 import { Command } from 'commander';
 import pc from 'picocolors';
 import {
@@ -7,6 +9,7 @@ import {
   DEFAULT_TEST_PATTERNS,
 } from '../../config/index.js';
 import { runTest, type TestResult } from '../../runner/index.js';
+import { getTestRecordingDir } from '../../recording/index.js';
 import { formatDuration } from '../../runner/format.js';
 import { createLogger } from '../../logger.js';
 
@@ -14,7 +17,7 @@ export interface RunOptions {
   config?: string;
   dryRun?: boolean;
   json?: boolean;
-  record?: string;
+  report?: string;
   replay?: string;
 }
 
@@ -24,19 +27,19 @@ export const runCommand = new Command('run')
   .option('-c, --config <path>', 'Path to config file')
   .option('-d, --dry-run', 'Validate tests without executing')
   .option('--json', 'Output results as JSON')
-  .option('--record <dir>', 'Record events to directory')
+  .option('--report <dir>', 'Record events and write report to directory')
   .option('--replay <dir>', 'Replay events from directory')
   .action(async (patterns: string[], options: RunOptions) => {
     const jsonOutput = options.json ?? false;
-    const recordDir = options.record;
+    const reportDir = options.report;
     const replayDir = options.replay;
 
     // Create logger from ANANKE_LOG_LEVEL env var (default: info)
     const logger = createLogger({ json: jsonOutput });
 
     // Validate mutually exclusive options
-    if (recordDir && replayDir) {
-      console.error(pc.red('Error: --record and --replay are mutually exclusive'));
+    if (reportDir && replayDir) {
+      console.error(pc.red('Error: --report and --replay are mutually exclusive'));
       process.exit(1);
     }
 
@@ -144,9 +147,20 @@ export const runCommand = new Command('run')
           test,
           testFilePath: filePath,
           logger,
-          recordDir,
+          reportDir,
           replayDir,
         });
+
+        // Write report.json to per-test directory
+        if (reportDir) {
+          const relPath = relative(process.cwd(), filePath);
+          const testDir = getTestRecordingDir(reportDir, relPath);
+          await mkdir(testDir, { recursive: true });
+          await writeFile(
+            join(testDir, 'report.json'),
+            JSON.stringify(result, null, 2) + '\n',
+          );
+        }
 
         results.push({ ...result, filePath } as TestResult & { filePath: string });
 

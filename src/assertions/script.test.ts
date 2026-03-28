@@ -4,6 +4,7 @@ import type { StepData } from "../types/data.js";
 
 const makeStepData = (overrides: Partial<StepData> = {}): StepData => ({
   stepIndex: 0,
+  type: "message",
   toolCalls: [],
   assistantText: "",
   startTs: 1000,

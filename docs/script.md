@@ -280,15 +280,19 @@ fi
 
 ## StepData Shape (for reference)
 
-The `steps` array in the `ANANKE` input contains these objects (only agent-facing steps produce step data):
+The `steps` array in the `ANANKE` input contains these objects (all step types produce step data):
 
 ```typescript
 interface StepData {
   stepIndex: number;
+  type: "message" | "resume" | "script";
   toolCalls: ToolCall[];
   assistantText: string;
   startTs: number;
   endTs: number;
+  timings: StepTimings;
+  assertions?: StepAssertionResult;
+  exitCode?: number; // script steps only (non-zero = test skipped)
 }
 
 interface ToolCall {
