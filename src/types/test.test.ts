@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   TestFileSchema,
-  isUserStep,
-  isConnectStep,
+  isMessageStep,
+  isResumeStep,
   isScriptStep,
 } from "./test.js";
 
@@ -56,7 +56,7 @@ describe("TestFileSchema", () => {
       steps: [
         {
           script: "scripts/gen.sh",
-          assert: { text: { matches: "hello" } },
+          expect: { text: { matches: "hello" } },
         },
       ],
     };
@@ -70,9 +70,9 @@ describe("TestFileSchema", () => {
       name: "mixed test",
       steps: [
         { script: "scripts/setup.sh" },
-        { user: "Hello" },
+        { message: "Hello" },
         { script: "scripts/gen.sh" },
-        { user: "Follow up ${VAR.MESSAGE}" },
+        { message: "Follow up ${VAR.MESSAGE}" },
       ],
     };
     const result = TestFileSchema.safeParse(input);
@@ -90,23 +90,63 @@ describe("TestFileSchema", () => {
     const result = TestFileSchema.safeParse(input);
     expect(result.success).toBe(false);
   });
+
+  it("accepts resume step with thread ID", () => {
+    const input = {
+      version: "1.0",
+      name: "resume test",
+      steps: [
+        { type: "resume", resume: "th_123" },
+      ],
+    };
+    const result = TestFileSchema.safeParse(input);
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects resume step without resume field", () => {
+    const input = {
+      version: "1.0",
+      name: "bad resume test",
+      steps: [
+        { type: "resume" },
+      ],
+    };
+    const result = TestFileSchema.safeParse(input);
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts resume step with assert", () => {
+    const input = {
+      version: "1.0",
+      name: "resume with assert",
+      steps: [
+        {
+          type: "resume",
+          resume: "th_123",
+          expect: { text: { matches: "restored" } },
+        },
+      ],
+    };
+    const result = TestFileSchema.safeParse(input);
+    expect(result.success).toBe(true);
+  });
 });
 
 describe("type guards", () => {
-  it("isUserStep identifies user steps", () => {
-    expect(isUserStep({ user: "hello" } as any)).toBe(true);
-    expect(isUserStep({ type: "script", script: "x" } as any)).toBe(false);
+  it("isMessageStep identifies message steps", () => {
+    expect(isMessageStep({ message: "hello" } as any)).toBe(true);
+    expect(isMessageStep({ type: "script", script: "x" } as any)).toBe(false);
   });
 
-  it("isConnectStep identifies connect steps", () => {
-    expect(isConnectStep({ type: "agui:connect" } as any)).toBe(true);
-    expect(isConnectStep({ user: "hello" } as any)).toBe(false);
+  it("isResumeStep identifies resume steps", () => {
+    expect(isResumeStep({ type: "resume", resume: "th_123" } as any)).toBe(true);
+    expect(isResumeStep({ message: "hello" } as any)).toBe(false);
   });
 
   it("isScriptStep identifies script steps", () => {
     expect(isScriptStep({ script: "x" } as any)).toBe(true);
     expect(isScriptStep({ type: "script", script: "x" } as any)).toBe(true);
-    expect(isScriptStep({ user: "hello" } as any)).toBe(false);
-    expect(isScriptStep({ type: "agui:connect" } as any)).toBe(false);
+    expect(isScriptStep({ message: "hello" } as any)).toBe(false);
+    expect(isScriptStep({ type: "resume", resume: "th_123" } as any)).toBe(false);
   });
 });

@@ -27,21 +27,21 @@ ananke run --replay ./recordings/
 
 ## Directory Structure
 
-Events are organized by test file path and turn:
+Events are organized by test file path and step:
 
 ```
 recordings/
   tests/
     v0-login-form-app.test.yaml/
       script-step-0.json
-      turn-0.jsonl
-      turn-1.jsonl
+      step-0.jsonl
+      step-1.jsonl
     other/
       nested.test.yaml/
-        turn-0.jsonl
+        step-0.jsonl
 ```
 
-- Turn files contain AG-UI events in JSONL format (one event per line)
+- Step files contain AG-UI events in JSONL format (one event per line)
 - Script step files store output variables as JSON
 
 ## Notes

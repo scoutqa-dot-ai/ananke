@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { relative } from "node:path";
 import { createClient } from "../client/index.js";
 import type { ProtocolClient } from "../client/types.js";
@@ -10,21 +11,19 @@ import type {
   ProjectConfig,
   TestFile,
   TestData,
-  TurnData,
+  StepData,
 } from "../types/index.js";
-import { isUserStep, isConnectStep, isScriptStep } from "../types/test.js";
-import { executeTurn, executeConnectTurn, collectTurnData, withPromptSent } from "./turn.js";
+import { isMessageStep, isResumeStep, isScriptStep } from "../types/test.js";
+import { executeMessageStep, executeResumeStep, collectStepData, withPromptSent } from "./step.js";
 import {
   executeScript,
   normalizeScriptConfig,
   buildAnankeInput,
   mergeVariables,
 } from "./script.js";
-import { mergeAssertBlocks } from "./merge.js";
 import { formatDuration } from "./format.js";
 import {
-  evaluateTurnAssertions,
-  evaluateTestAssertions,
+  evaluateStepAssertions,
   validateNamedAssertions,
   type AssertionResult,
   type NamedAssertions,
@@ -62,7 +61,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
   const { config, test, testFilePath, logger, recordDir, replayDir } = options;
 
   const startTs = Date.now();
-  const turns: TurnData[] = [];
+  const steps: StepData[] = [];
   const failures: string[] = [];
 
   // Validate and prepare named assertions from config
@@ -95,8 +94,21 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
   // Create client (only needed for non-replay mode, deferred until first agent step)
   let client: ProtocolClient | undefined;
 
-  // Track turn index separately (only agent-facing steps increment it)
-  let turnIndex = 0;
+  // Track step index separately (only agent-facing steps increment it)
+  let stepIndex = 0;
+
+  /**
+   * Ensure a client exists, creating one if needed.
+   * Reads THREAD_ID from variables, generating one if absent.
+   */
+  function ensureClient(): void {
+    if (client || testReplayDir) return;
+    if (!variables.THREAD_ID) {
+      variables.THREAD_ID = randomUUID();
+      logger.debug(`  Generated THREAD_ID: ${variables.THREAD_ID}`);
+    }
+    client = createClient(interpolatedConfig, { threadId: variables.THREAD_ID, logger });
+  }
 
   // Execute steps
   for (let i = 0; i < test.steps.length; i++) {
@@ -109,9 +121,9 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
 
         const scriptConfig = normalizeScriptConfig(step.script);
         const ananke = buildAnankeInput({
-          turns,
+          steps,
           variables,
-          turnIndex: null,
+          stepIndex: null,
         });
 
         const scriptResult = await executeScript(scriptConfig, ananke, { logger });
@@ -123,7 +135,7 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
             testName: test.name,
             passed: true,
             skipped: true,
-            testData: buildTestData(turns, startTs),
+            testData: buildTestData(steps, startTs),
             failures: [],
           };
         }
@@ -141,131 +153,106 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
           variables
         ) as ProjectConfig;
 
-        continue; // Script steps don't produce TurnData
+        continue; // Script steps don't produce StepData
+      }
+
+      if (isResumeStep(step)) {
+        // Resume step — set thread ID, destroy old client, create new one
+        const threadId = interpolate(step.resume, variables);
+        logger.debug(`  Step ${i + 1}: [resume: ${threadId}]`);
+        variables.THREAD_ID = threadId;
+        client = undefined; // Force new client creation
       }
 
       // Agent-facing steps below — ensure client exists
-      if (!client && !testReplayDir) {
-        client = createClient(interpolatedConfig, { logger });
-      }
+      ensureClient();
 
-      let turnData: TurnData;
+      let stepData: StepData;
 
       if (testReplayDir) {
         // Replay mode
-        if (isConnectStep(step)) {
-          logger.debug(`  Step ${i + 1}: [connect] (replay)`);
-        } else if (isUserStep(step)) {
-          const userMessage = interpolate(step.user, variables);
+        if (isResumeStep(step)) {
+          logger.debug(`  Step ${i + 1}: [resume] (replay)`);
+        } else if (isMessageStep(step)) {
+          const userMessage = interpolate(step.message, variables);
           logger.debug(`  Step ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}" (replay)`);
         }
-        const events = replayEvents(replayDir!, relativeTestPath, turnIndex);
-        turnData = await collectTurnData(events, turnIndex, { logger });
-      } else if (isConnectStep(step)) {
-        // Connect step - no message, just observe
-        logger.debug(`  Step ${i + 1}: [connect]`);
-        if (!client!.connect) {
+        const events = replayEvents(replayDir!, relativeTestPath, stepIndex);
+        stepData = await collectStepData(events, stepIndex, { logger });
+      } else if (isResumeStep(step)) {
+        // Resume step - no message, just observe
+        if (!client!.resume) {
           throw new Error("Client does not support connect operation");
         }
         if (testRecordingDir) {
-          const events = createRecordingGenerator(withPromptSent(client!.connect()), testRecordingDir, turnIndex);
-          turnData = await collectTurnData(events, turnIndex, { logger });
+          const events = createRecordingGenerator(withPromptSent(client!.resume()), testRecordingDir, stepIndex);
+          stepData = await collectStepData(events, stepIndex, { logger });
         } else {
-          turnData = await executeConnectTurn(client!, turnIndex, { logger });
+          stepData = await executeResumeStep(client!, stepIndex, { logger });
         }
-      } else if (isUserStep(step)) {
-        // User message step
-        const userMessage = interpolate(step.user, variables);
+      } else if (isMessageStep(step)) {
+        // Message step
+        const userMessage = interpolate(step.message, variables);
         logger.debug(`  Step ${i + 1}: "${userMessage.slice(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
         if (testRecordingDir) {
-          const events = createRecordingGenerator(withPromptSent(client!.sendMessage({ message: userMessage })), testRecordingDir, turnIndex);
-          turnData = await collectTurnData(events, turnIndex, { logger });
+          const events = createRecordingGenerator(withPromptSent(client!.message(userMessage)), testRecordingDir, stepIndex);
+          stepData = await collectStepData(events, stepIndex, { logger });
         } else {
-          turnData = await executeTurn(client!, userMessage, turnIndex, { logger });
+          stepData = await executeMessageStep(client!, userMessage, stepIndex, { logger });
         }
       } else {
         throw new Error(`Unknown step type at index ${i}`);
       }
 
-      turns.push(turnData);
+      steps.push(stepData);
 
-      logger.debug(`    Tools: ${turnData.toolCalls.map((t) => t.name).join(', ') || '(none)'}`);
-      logger.debug(`    Duration: ${formatDuration(turnData.endTs - turnData.startTs)}`);
+      logger.debug(`    Tools: ${stepData.toolCalls.map((t) => t.name).join(', ') || '(none)'}`);
+      logger.debug(`    Duration: ${formatDuration(stepData.endTs - stepData.startTs)}`);
 
-      // Evaluate turn-level assertions (merged: target -> test -> step)
-      const turnAssertions = mergeAssertBlocks(
-        interpolatedConfig.target.assert,
-        test.assert,
-        step.assert
-      );
-      const hasAssertions = Object.keys(turnAssertions).length > 0;
+      // Evaluate step-level assertions
+      const stepExpect = step.expect;
+      const hasAssertions = stepExpect !== undefined && Object.keys(stepExpect).length > 0;
 
       if (hasAssertions) {
         const evalOptions: EvaluationOptions = {
           namedAssertions,
           logger,
           variables,
-          turns,
-          turnIndex,
+          steps,
+          stepIndex,
         };
-        const evalResult = await evaluateTurnAssertions(turnData, turnAssertions, evalOptions);
+        const evalResult = await evaluateStepAssertions(stepData, stepExpect!, evalOptions);
 
         if (!evalResult.passed) {
           for (const failure of evalResult.failures) {
-            failures.push(formatFailure(failure, turnIndex + 1));
+            failures.push(formatFailure(failure, stepIndex + 1));
           }
-          // Fail fast on turn-level assertion failure
+          // Fail fast on step-level assertion failure
           return {
             testName: test.name,
             passed: false,
-            testData: buildTestData(turns, startTs),
+            testData: buildTestData(steps, startTs),
             failures,
           };
         }
       }
 
-      turnIndex++;
+      stepIndex++;
     } catch (err) {
       return {
         testName: test.name,
         passed: false,
-        testData: buildTestData(turns, startTs),
+        testData: buildTestData(steps, startTs),
         error: `Step ${i + 1} failed: ${(err as Error).message}`,
         failures: [],
       };
     }
   }
 
-  // Evaluate test-level assertions (merged: target -> test)
-  const testData = buildTestData(turns, startTs);
-  const testAssertions = mergeAssertBlocks(
-    interpolatedConfig.target.assert,
-    test.assert,
-    undefined
-  );
-  const hasTestAssertions = Object.keys(testAssertions).length > 0;
-
-  if (hasTestAssertions) {
-    const evalOptions: EvaluationOptions = {
-      namedAssertions,
-      logger,
-      variables,
-      turns,
-      turnIndex: null,
-    };
-    const evalResult = await evaluateTestAssertions(testData, testAssertions, evalOptions);
-
-    if (!evalResult.passed) {
-      for (const failure of evalResult.failures) {
-        failures.push(formatFailure(failure));
-      }
-    }
-  }
-
   return {
     testName: test.name,
     passed: failures.length === 0,
-    testData,
+    testData: buildTestData(steps, startTs),
     failures,
   };
 }
@@ -279,12 +266,12 @@ function excludeAssertions(config: ProjectConfig): Record<string, unknown> {
   return rest;
 }
 
-function buildTestData(turns: TurnData[], startTs: number): TestData {
-  const allToolCalls = turns.flatMap((t) => t.toolCalls);
-  const allAssistantTexts = turns.map((t) => t.assistantText);
+function buildTestData(steps: StepData[], startTs: number): TestData {
+  const allToolCalls = steps.flatMap((t) => t.toolCalls);
+  const allAssistantTexts = steps.map((t) => t.assistantText);
 
   return {
-    turns,
+    steps,
     allToolCalls,
     allAssistantTexts,
     startTs,
@@ -292,9 +279,9 @@ function buildTestData(turns: TurnData[], startTs: number): TestData {
   };
 }
 
-function formatFailure(failure: AssertionResult, turnIndex?: number, indent = 0): string {
+function formatFailure(failure: AssertionResult, stepIndex?: number, indent = 0): string {
   const pad = indent > 0 ? '  '.repeat(indent) : '';
-  const prefix = turnIndex !== undefined && indent === 0 ? `[Turn ${turnIndex}] ` : '';
+  const prefix = stepIndex !== undefined && indent === 0 ? `[Step ${stepIndex}] ` : '';
   const pathStr = failure.path?.length ? `${failure.path.join(' → ')}: ` : '';
   const lastSegment = failure.path?.[failure.path.length - 1];
   const assertionLabel = lastSegment === failure.assertion ? '' : failure.assertion;

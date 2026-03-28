@@ -1,21 +1,16 @@
 import { z } from "zod";
-import { AssertBlockSchema } from "./test.js";
 
-// Re-export AssertBlockSchema as ConfigAssertBlockSchema for config usage
-export const ConfigAssertBlockSchema = AssertBlockSchema;
-
-// Named assertions: Record<name, assert block definition>.
+// Named assertions: Record<name, expect block definition>.
 // Definitions may contain ${param} placeholders in any position, so we
 // validate structure only at resolution/evaluation time — not at load time.
 // This avoids maintaining a duplicate "template-aware" schema that drifts
-// from AssertBlockSchema whenever operators are added or changed.
+// from ExpectBlockSchema whenever operators are added or changed.
 export const NamedAssertionsSchema = z.record(z.string(), z.unknown());
 
 // Common fields shared across all target types
 const CommonTargetFields = {
   headers: z.record(z.string()).optional(),
   timeout_ms: z.number().optional(),
-  assert: ConfigAssertBlockSchema.optional(),
 };
 
 // AG-UI target (flat - all fields at same level as type)
@@ -25,7 +20,6 @@ const AGUITargetSchema = z.object({
   // AG-UI specific fields
   endpoint: z.string().url(),
   agentId: z.string(),
-  threadId: z.string().optional(),
   forwardedProps: z.record(z.unknown()).optional(),
   state: z.record(z.unknown()).optional(),
 }).strict();
@@ -37,7 +31,6 @@ const AGUIWSSTargetSchema = z.object({
   // HTTP endpoint for sending messages
   endpoint: z.string().url(),
   agentId: z.string(),
-  threadId: z.string().optional(),
   forwardedProps: z.record(z.unknown()).optional(),
   state: z.record(z.unknown()).optional(),
   // WebSocket/STOMP options for receiving events
@@ -76,4 +69,3 @@ export type AGUITarget = z.infer<typeof AGUITargetSchema>;
 export type AGUIWSSTarget = z.infer<typeof AGUIWSSTargetSchema>;
 export type Target = z.infer<typeof TargetSchema>;
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
-export type ConfigAssertBlock = z.infer<typeof ConfigAssertBlockSchema>;

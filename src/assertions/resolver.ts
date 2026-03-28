@@ -1,4 +1,4 @@
-import type { AssertBlock } from "../types/test.js";
+import type { ExpectBlock } from "../types/test.js";
 import { SELECTOR_KEYS } from "./selectors.js";
 
 export type NamedAssertions = Record<string, unknown>;
@@ -22,7 +22,7 @@ const BUILTIN_KEYS = new Set([
 ]);
 
 /** Keys recognized at the assert block level (selectors + meta) */
-const ASSERT_BLOCK_KEYS = new Set([
+const EXPECT_BLOCK_KEYS = new Set([
   ...SELECTOR_KEYS,
   "or", "and", "not", "script",
 ]);
@@ -38,7 +38,7 @@ export function validateNamedAssertions(named: NamedAssertions): void {
         `Named assertion "${name}" shadows built-in operator. Choose a different name.`
       );
     }
-    if (ASSERT_BLOCK_KEYS.has(name)) {
+    if (EXPECT_BLOCK_KEYS.has(name)) {
       throw new Error(
         `Named assertion "${name}" shadows built-in selector. Choose a different name.`
       );
@@ -51,25 +51,25 @@ export function validateNamedAssertions(named: NamedAssertions): void {
  * Expands named assertion references into their definitions with parameter substitution.
  * Returns a new assert block with only built-in keys.
  */
-export function resolveAssertBlock(
-  block: AssertBlock,
+export function resolveExpectBlock(
+  block: ExpectBlock,
   named: NamedAssertions
-): AssertBlock {
-  const resolved: AssertBlock = {};
+): ExpectBlock {
+  const resolved: ExpectBlock = {};
 
   for (const [key, value] of Object.entries(block)) {
-    if (ASSERT_BLOCK_KEYS.has(key)) {
+    if (EXPECT_BLOCK_KEYS.has(key)) {
       // Built-in key — resolve recursively within its value
       if (key === "or" && Array.isArray(value)) {
-        resolved[key] = value.map((branch: AssertBlock) =>
-          resolveAssertBlock(branch, named)
+        resolved[key] = value.map((branch: ExpectBlock) =>
+          resolveExpectBlock(branch, named)
         );
       } else if (key === "and" && Array.isArray(value)) {
-        resolved[key] = value.map((branch: AssertBlock) =>
-          resolveAssertBlock(branch, named)
+        resolved[key] = value.map((branch: ExpectBlock) =>
+          resolveExpectBlock(branch, named)
         );
       } else if (key === "not" && typeof value === "object" && value !== null) {
-        resolved[key] = resolveAssertBlock(value as AssertBlock, named);
+        resolved[key] = resolveExpectBlock(value as ExpectBlock, named);
       } else if (SELECTOR_KEYS.includes(key as typeof SELECTOR_KEYS[number])) {
         // Selector value is an assertion node — resolve it
         resolved[key] = resolveAssertionNode(value as Record<string, unknown>, named);
@@ -85,13 +85,13 @@ export function resolveAssertBlock(
       const expanded = substituteParams(definition, params);
       // Merge the expanded definition into the resolved block
       const expandedBlock = typeof expanded === "object" && expanded !== null
-        ? resolveAssertBlock(expanded as AssertBlock, named)
-        : {} as AssertBlock;
+        ? resolveExpectBlock(expanded as ExpectBlock, named)
+        : {} as ExpectBlock;
       for (const [ek, ev] of Object.entries(expandedBlock)) {
         if (ek in resolved) {
           // Key collision: wrap both in implicit AND
           const existing = resolved[ek];
-          const mergedAnd = (resolved._mergedAnd ?? []) as AssertBlock[];
+          const mergedAnd = (resolved._mergedAnd ?? []) as ExpectBlock[];
           mergedAnd.push({ [ek]: existing }, { [ek]: ev });
           resolved._mergedAnd = mergedAnd;
           delete resolved[ek];
@@ -107,12 +107,12 @@ export function resolveAssertBlock(
 
   // If we had key collisions, merge them into an `and` block
   if (resolved._mergedAnd) {
-    const mergedBranches = resolved._mergedAnd as AssertBlock[];
+    const mergedBranches = resolved._mergedAnd as ExpectBlock[];
     delete resolved._mergedAnd;
     if (!resolved.and) {
       resolved.and = mergedBranches;
     } else {
-      (resolved.and as AssertBlock[]).push(...mergedBranches);
+      (resolved.and as ExpectBlock[]).push(...mergedBranches);
     }
   }
 

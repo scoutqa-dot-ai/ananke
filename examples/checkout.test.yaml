@@ -5,8 +5,8 @@ name: checkout flow with validation
 steps:
   - script: 'echo "{\"variables\": {\"THREAD_ID\": \"th_123\"}}"'
 
-  - user: "I want to checkout"
-    assert:
+  - message: "I want to checkout"
+    expect:
       tool_names:
         ordered:
           - equals: "validate_cart"
@@ -15,25 +15,17 @@ steps:
         having:
           durationMs: { max: 30000 }
 
-  - user: "Use the first shipping option"
-    assert:
+  - message: "Use the first shipping option"
+    expect:
       tools:
         some:
           having:
             name: { equals: "calculate_total" }
 
-  - user: "Confirm and pay"
-    assert:
+  - message: "Confirm and pay"
+    expect:
       tools:
         filter:
           having:
             name: { equals: "charge_card" }
         count: { equals: 1 }
-
-assert:
-  tool_names:
-    none: { equals: "delete_order" }
-  response:
-    having:
-      durationMs: { max: 120000 }
-      idleMs: { max: 60000 }

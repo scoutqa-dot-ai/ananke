@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  resolveAssertBlock,
+  resolveExpectBlock,
   resolveAssertionNode,
   validateNamedAssertions,
 } from "./resolver.js";
@@ -25,13 +25,13 @@ describe("validateNamedAssertions", () => {
   });
 });
 
-describe("resolveAssertBlock", () => {
+describe("resolveExpectBlock", () => {
   it("passes through built-in keys unchanged", () => {
     const block = {
       text: { matches: "hello" },
       tool_names: { some: { equals: "search" } },
     };
-    const result = resolveAssertBlock(block, {});
+    const result = resolveExpectBlock(block, {});
     expect(result).toEqual(block);
   });
 
@@ -40,7 +40,7 @@ describe("resolveAssertBlock", () => {
       fast_response: { duration_ms: { max: 15000 } },
     };
     const block = { fast_response: {} };
-    const result = resolveAssertBlock(block, named);
+    const result = resolveExpectBlock(block, named);
     expect(result).toEqual({ duration_ms: { max: 15000 } });
   });
 
@@ -54,7 +54,7 @@ describe("resolveAssertBlock", () => {
       calls_agent: {},
       text: { matches: "hello" },
     };
-    const result = resolveAssertBlock(block, named);
+    const result = resolveExpectBlock(block, named);
     expect(result).toEqual({
       duration_ms: { max: 15000 },
       tool_names: { some: { equals: "agent" } },
@@ -67,7 +67,7 @@ describe("resolveAssertBlock", () => {
       completes_within: { duration_ms: { max: "${ms}" } },
     };
     const block = { completes_within: { ms: 10000 } };
-    const result = resolveAssertBlock(block, named);
+    const result = resolveExpectBlock(block, named);
     expect(result).toEqual({ duration_ms: { max: 10000 } });
   });
 
@@ -81,7 +81,7 @@ describe("resolveAssertBlock", () => {
       },
     };
     const block = { tool_called_n_times: { tool_name: "search", n: 2 } };
-    const result = resolveAssertBlock(block, named);
+    const result = resolveExpectBlock(block, named);
     expect(result).toEqual({
       tools: {
         filter: { having: { name: { equals: "search" } } },
@@ -95,7 +95,7 @@ describe("resolveAssertBlock", () => {
       needs_param: { duration_ms: { max: "${ms}" } },
     };
     expect(() =>
-      resolveAssertBlock({ needs_param: {} }, named)
+      resolveExpectBlock({ needs_param: {} }, named)
     ).toThrow("Unresolved parameter: ${ms}");
   });
 
@@ -106,7 +106,7 @@ describe("resolveAssertBlock", () => {
     const block = {
       or: [{ fast_response: {} }, { text: { matches: "slow" } }],
     };
-    const result = resolveAssertBlock(block, named);
+    const result = resolveExpectBlock(block, named);
     expect(result).toEqual({
       or: [{ duration_ms: { max: 15000 } }, { text: { matches: "slow" } }],
     });
@@ -119,7 +119,7 @@ describe("resolveAssertBlock", () => {
     const block = {
       and: [{ fast_response: {} }, { text: { matches: "ok" } }],
     };
-    const result = resolveAssertBlock(block, named);
+    const result = resolveExpectBlock(block, named);
     expect(result).toEqual({
       and: [{ duration_ms: { max: 15000 } }, { text: { matches: "ok" } }],
     });
@@ -130,7 +130,7 @@ describe("resolveAssertBlock", () => {
       calls_agent: { tool_names: { some: { equals: "agent" } } },
     };
     const block = { not: { calls_agent: {} } };
-    const result = resolveAssertBlock(block, named);
+    const result = resolveExpectBlock(block, named);
     expect(result).toEqual({
       not: { tool_names: { some: { equals: "agent" } } },
     });
@@ -138,7 +138,7 @@ describe("resolveAssertBlock", () => {
 
   it("passes through unknown keys (evaluator will error)", () => {
     const block = { unknown_thing: { foo: "bar" } };
-    const result = resolveAssertBlock(block, {});
+    const result = resolveExpectBlock(block, {});
     expect(result).toEqual({ unknown_thing: { foo: "bar" } });
   });
 });

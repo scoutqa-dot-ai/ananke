@@ -1,6 +1,6 @@
 import { execa } from "execa";
 import type { Variables } from "../config/interpolate.js";
-import type { TurnData } from "../types/data.js";
+import type { StepData } from "../types/data.js";
 import {
   DEFAULT_SCRIPT_TIMEOUT_MS,
   SLOW_SCRIPT_THRESHOLD_MS,
@@ -23,9 +23,9 @@ export interface ScriptConfig {
 /** The JSON object every script receives via ANANKE env var and stdin */
 export interface AnankeInput {
   value: unknown;
-  turns: TurnData[];
+  steps: StepData[];
   variables: Variables;
-  turnIndex: number | null;
+  stepIndex: number | null;
 }
 
 /** Parsed stdout from any script */
@@ -79,15 +79,15 @@ export function normalizeScriptConfig(operand: unknown): ScriptConfig {
  */
 export function buildAnankeInput(opts: {
   value?: unknown;
-  turns?: TurnData[];
+  steps?: StepData[];
   variables?: Variables;
-  turnIndex?: number | null;
+  stepIndex?: number | null;
 }): AnankeInput {
   return {
     value: opts.value ?? null,
-    turns: opts.turns ?? [],
+    steps: opts.steps ?? [],
     variables: opts.variables ?? {},
-    turnIndex: opts.turnIndex ?? null,
+    stepIndex: opts.stepIndex ?? null,
   };
 }
 

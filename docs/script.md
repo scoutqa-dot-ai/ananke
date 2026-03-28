@@ -1,4 +1,4 @@
-# Unified Script Contract
+# Script Contract
 
 > **Status:** Implemented
 
@@ -43,28 +43,27 @@ Every script receives a single env var `ANANKE` containing a JSON object with a 
 ```json
 {
   "value": null,
-  "turns": [],
+  "steps": [],
   "variables": {},
-  "turnIndex": null
+  "stepIndex": null
 }
 ```
 
 | Field | Type | Description |
 |---|---|---|
 | `value` | `any \| null` | Primary input value — the asserted value for assertions, `null` otherwise |
-| `turns` | `TurnData[]` | All completed turns so far (only agent-facing steps produce turns) |
+| `steps` | `StepData[]` | All completed steps so far (only agent-facing steps produce step data) |
 | `variables` | `Record<string, string>` | Current variable map |
-| `turnIndex` | `number \| null` | Current turn index, `null` for script steps and test-level assertions |
+| `stepIndex` | `number \| null` | Current step index, `null` for script steps |
 
 **stdin** receives the same JSON as `ANANKE`.
 
 ### What each script location sees
 
-| Location | `value` | `turns` | `variables` | `turnIndex` |
+| Location | `value` | `steps` | `variables` | `stepIndex` |
 |---|---|---|---|---|
-| **Script step** | `null` | completed turns | accumulated from prior steps | `null` |
-| **Assertion (step)** | the asserted value | completed turns | all vars | current index |
-| **Assertion (test)** | the asserted value | all turns | all vars | `null` |
+| **Script step** | `null` | completed steps | accumulated from prior steps | `null` |
+| **Assertion (step)** | the asserted value | completed steps | all vars | current index |
 
 The `env` field in the long form adds extra env vars on top of `ANANKE`. These are for convenience — passing small values without parsing JSON.
 
@@ -148,10 +147,10 @@ Variables accumulate throughout test execution. Each script's `variables` output
 ```
 step 1 (script) → {"variables": {"THREAD_ID": "th_123"}}
 step 2 (script) → can use ${VAR.THREAD_ID}, outputs {"variables": {"TOKEN": "abc"}}
-step 3 (user)   → user: "Check ${VAR.THREAD_ID}" → sends "Check th_123"
+step 3 (message)   → message: "Check ${VAR.THREAD_ID}" → sends "Check th_123"
 step 4 (script) → receives variables: {THREAD_ID: "th_123", TOKEN: "abc"}
                    outputs {"variables": {"ORDER_ID": "ord_1"}}
-step 5 (user)   → user: "Status of ${VAR.ORDER_ID}" → sends "Status of ord_1"
+step 5 (message)   → message: "Status of ${VAR.ORDER_ID}" → sends "Status of ord_1"
 ```
 
 Variables set by assertion scripts are also available to subsequent steps and assertions within the same test.
@@ -162,17 +161,17 @@ Variables set by assertion scripts are also available to subsequent steps and as
 
 A test file contains an ordered list of **steps**. Each step is one of three types:
 
-### User step — sends a message to the agent
+### Message step — sends a message to the agent
 
 ```yaml
 steps:
-  - user: "Show me shipping options for cart ${VAR.CART_ID}"
-    assert:
+  - message: "Show me shipping options for cart ${VAR.CART_ID}"
+    expect:
       tool_names:
         some: { equals: "get_shipping_options" }
 ```
 
-The `user` field is interpolated with `${VAR.X}` and `${ENV.X}` before sending. Assertions evaluate on the agent's response.
+The `message` field is interpolated with `${VAR.X}` and `${ENV.X}` before sending. Assertions evaluate on the agent's response.
 
 ### Script step — runs a script, sets variables
 
@@ -189,20 +188,21 @@ steps:
 ```
 
 Script steps:
-1. Run the script with `ANANKE` containing all completed turns and current variables
+1. Run the script with `ANANKE` containing all completed steps and current variables
 2. On exit 0: parse stdout JSON and merge `variables` into the map
 3. On non-zero exit: skip the test (preconditions not met)
 4. **Do not send any message to the agent**
 5. **Do not take assertions** (no agent response to assert on)
 
-Script steps always execute, even during replay mode. Only agent turns are replayed from recordings.
+Script steps always execute, even during replay mode. Only agent steps are replayed from recordings.
 
-### Connect step — observe an existing thread
+### Resume step — observe an existing thread
 
 ```yaml
 steps:
-  - type: agui:connect
-    assert:
+  - type: resume
+    resume: "threadId"
+    expect:
       text:
         contains: "status"
 ```
@@ -220,8 +220,8 @@ Script assertions use the unified contract to perform custom evaluation. Exit 0 
 ```yaml
 # Assertion script
 steps:
-  - user: "Create user John"
-    assert:
+  - message: "Create user John"
+    expect:
       tools:
         some:
           having:
@@ -250,8 +250,8 @@ An assertion script can set variables for downstream use:
 
 ```yaml
 steps:
-  - user: "Create project Alpha"
-    assert:
+  - message: "Create project Alpha"
+    expect:
       tools:
         some:
           having:
@@ -259,7 +259,7 @@ steps:
             result.json.project_id:
               script: "scripts/verify_and_capture.sh"
 
-  - user: "Add a task to project ${VAR.CREATED_PROJECT_ID}"
+  - message: "Add a task to project ${VAR.CREATED_PROJECT_ID}"
 ```
 
 ```bash
@@ -278,13 +278,13 @@ fi
 
 ---
 
-## TurnData Shape (for reference)
+## StepData Shape (for reference)
 
-The `turns` array in the `ANANKE` input contains these objects (only agent-facing steps produce turns):
+The `steps` array in the `ANANKE` input contains these objects (only agent-facing steps produce step data):
 
 ```typescript
-interface TurnData {
-  turnIndex: number;
+interface StepData {
+  stepIndex: number;
   toolCalls: ToolCall[];
   assistantText: string;
   startTs: number;
@@ -313,8 +313,8 @@ steps:
     # stdout: {"variables": {"CART_ID": "cart_789"}}
 
   # Step 2: user message using variable from setup
-  - user: "Show shipping options for cart ${VAR.CART_ID}"
-    assert:
+  - message: "Show shipping options for cart ${VAR.CART_ID}"
+    expect:
       tool_names:
         some: { equals: "get_shipping_options" }
 
@@ -323,8 +323,8 @@ steps:
     # stdout: {"variables": {"SHIPPING_OPTION": "Express"}}
 
   # Step 4: send the picked option
-  - user: "Use shipping option: ${VAR.SHIPPING_OPTION}"
-    assert:
+  - message: "Use shipping option: ${VAR.SHIPPING_OPTION}"
+    expect:
       tool_names:
         some: { equals: "calculate_total" }
 
@@ -337,33 +337,26 @@ steps:
     # or: exit 1 (skip test)
 
   # Step 6: apply coupon (message comes from script variable)
-  - user: "${VAR.COUPON_MSG}"
-    assert:
+  - message: "${VAR.COUPON_MSG}"
+    expect:
       tool_names:
         some: { equals: "apply_coupon" }
 
   # Step 7: confirm and pay
-  - user: "Confirm and pay for order ${VAR.ORDER_ID}"
-    assert:
+  - message: "Confirm and pay for order ${VAR.ORDER_ID}"
+    expect:
       tools:
         filter:
           having:
             name: { equals: "charge_card" }
         count: { equals: 1 }
-
-assert:
-  tools:
-    none:
-      having:
-        name: { equals: "charge_card" }
-        result.json: { has_key: "error" }
 ```
 
 ```bash
 #!/bin/bash
 # scripts/pick-cheapest-option.sh
 CHEAPEST=$(echo "$ANANKE" | jq -r '
-  .turns[-1].toolCalls[]
+  .steps[-1].toolCalls[]
   | select(.name == "get_shipping_options")
   | .result | fromjson
   | .options | sort_by(.price)[0].name
@@ -391,7 +384,7 @@ echo "{\"variables\": {\"COUPON_MSG\": \"Apply coupon code $COUPON\", \"HAS_COUP
 | `src/types/test.ts` | `ScriptStepSchema`, `StepSchema` union, `TestFileSchema` with `steps` |
 | `src/config/interpolate.ts` | `${VAR.NAME}` / `${ENV.NAME}` parsing |
 | `src/runner/script.ts` | Shared script executor (parse stdout, build ANANKE) |
-| `src/runner/test.ts` | Step execution loop — script steps set vars, user/connect steps talk to agent |
+| `src/runner/executor.ts` | Step execution loop — script steps set vars, user/resume steps talk to agent |
 | `src/assertions/engine.ts` | Script assertions via shared executor |
 
 ### Script path validation
@@ -410,25 +403,25 @@ When a script sets a variable that already exists in the variable map, a debug-l
 
 ```
 steps (sequential)
-  step 0 (script): ANANKE={value:null, turns:[], variables:{}, turnIndex:null}
+  step 0 (script): ANANKE={value:null, steps:[], variables:{}, stepIndex:null}
     → stdout: {variables: {A: "1"}}
     → vars = {A: "1"}
-  step 1 (script): ANANKE={value:null, turns:[], variables:{A:"1"}, turnIndex:null}
+  step 1 (script): ANANKE={value:null, steps:[], variables:{A:"1"}, stepIndex:null}
     → stdout: {variables: {B: "2"}}
     → vars = {A: "1", B: "2"}
 
-  step 2 (user): "msg with ${VAR.A}" → sends "msg with 1"
-    → agent responds → turnData[0]  (turnIndex=0)
-    assertion script (if any): ANANKE={value:..., turns:[turnData[0]], variables:{A:"1",B:"2"}, turnIndex:0}
+  step 2 (message): "msg with ${VAR.A}" → sends "msg with 1"
+    → agent responds → stepData[0]  (stepIndex=0)
+    assertion script (if any): ANANKE={value:..., steps:[stepData[0]], variables:{A:"1",B:"2"}, stepIndex:0}
       → stdout: {variables: {C: "3"}}
       → vars = {A: "1", B: "2", C: "3"}
 
-  step 3 (script): ANANKE={value:null, turns:[turnData[0]], variables:{A:"1",B:"2",C:"3"}, turnIndex:null}
+  step 3 (script): ANANKE={value:null, steps:[stepData[0]], variables:{A:"1",B:"2",C:"3"}, stepIndex:null}
     → stdout: {variables: {D: "4"}}
     → vars = {A:"1", B:"2", C:"3", D:"4"}
 
-  step 4 (user): "follow up about ${VAR.D}" → sends "follow up about 4"
-    → agent responds → turnData[1]  (turnIndex=1)
+  step 4 (message): "follow up about ${VAR.D}" → sends "follow up about 4"
+    → agent responds → stepData[1]  (stepIndex=1)
 ```
 
 ---
@@ -437,11 +430,11 @@ steps (sequential)
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                    test.ts (runner)                  │
+│                  executor.ts (runner)                │
 │  ┌────────────────────────────────────────────────┐  │
 │  │                   steps[]                      │  │
 │  │  ┌──────────┐ ┌──────────┐ ┌──────────────┐   │  │
-│  │  │ Script   │ │ User     │ │ Connect      │   │  │
+│  │  │ Script   │ │ User     │ │ Resume       │   │  │
 │  │  │ Step     │ │ Step     │ │ Step         │   │  │
 │  │  │(set vars)│ │(send msg)│ │(observe)     │   │  │
 │  │  └────┬─────┘ └────┬─────┘ └──────┬───────┘   │  │
@@ -450,7 +443,7 @@ steps (sequential)
 │          ▼             ▼              ▼              │
 │  ┌──────────────────────────────────────────────┐   │
 │  │          script.ts (shared executor)          │   │
-│  │  • Build ANANKE JSON (value, turns, vars)    │   │
+│  │  • Build ANANKE JSON (value, steps, vars)    │   │
 │  │  • Set env: ANANKE + custom env              │   │
 │  │  • Pass ANANKE to stdin                      │   │
 │  │  • Parse stdout as JSON                      │   │

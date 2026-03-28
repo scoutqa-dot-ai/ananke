@@ -6,7 +6,7 @@ export interface ToolCall {
 }
 
 /** Time-to-first metrics (ms from send to first event of each kind) */
-export interface TurnTimings {
+export interface StepTimings {
   /** Time to first AG-UI event of any type */
   ttfEventMs: number | null;
   /** Time to first TOOL_CALL_START event */
@@ -15,17 +15,17 @@ export interface TurnTimings {
   ttfTextMs: number | null;
 }
 
-export interface TurnData {
-  turnIndex: number;
+export interface StepData {
+  stepIndex: number;
   toolCalls: ToolCall[];
   assistantText: string;
   startTs: number;
   endTs: number;
-  timings: TurnTimings;
+  timings: StepTimings;
 }
 
 export interface TestData {
-  turns: TurnData[];
+  steps: StepData[];
   allToolCalls: ToolCall[];
   allAssistantTexts: string[];
   startTs: number;

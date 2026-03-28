@@ -91,7 +91,7 @@ export interface PromptSentEvent {
 
 /**
  * Full event union including ananke-internal events.
- * Used by the runner's collectTurnData.
+ * Used by the runner's collectStepData.
  */
 export type TimestampedEvent = (AGUIEvent | PromptSentEvent) & { "ananke:ts": number };
 

@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { evaluateTurnAssertions } from "./engine.js";
-import type { TurnData } from "../types/data.js";
+import { evaluateStepAssertions } from "./engine.js";
+import type { StepData } from "../types/data.js";
 
-const makeTurnData = (overrides: Partial<TurnData> = {}): TurnData => ({
-  turnIndex: 0,
+const makeStepData = (overrides: Partial<StepData> = {}): StepData => ({
+  stepIndex: 0,
   toolCalls: [],
   assistantText: "",
   startTs: 1000,
@@ -14,9 +14,9 @@ const makeTurnData = (overrides: Partial<TurnData> = {}): TurnData => ({
 
 describe("assertion script — unified contract", () => {
   it("receives ANANKE with value field", async () => {
-    const turnData = makeTurnData({ assistantText: "hello world" });
+    const stepData = makeStepData({ assistantText: "hello world" });
     // Script checks that ANANKE contains the asserted value
-    const result = await evaluateTurnAssertions(turnData, {
+    const result = await evaluateStepAssertions(stepData, {
       text: {
         script: 'echo "$ANANKE" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d[\'value\'] == \'hello world\'; print(\'{}\')"',
       },
@@ -24,44 +24,44 @@ describe("assertion script — unified contract", () => {
     expect(result.passed).toBe(true);
   });
 
-  it("receives ANANKE with turns array", async () => {
-    const turnData = makeTurnData({ assistantText: "hello" });
-    const result = await evaluateTurnAssertions(
-      turnData,
+  it("receives ANANKE with steps array", async () => {
+    const stepData = makeStepData({ assistantText: "hello" });
+    const result = await evaluateStepAssertions(
+      stepData,
       {
         text: {
-          script: 'echo "$ANANKE" | python3 -c "import sys,json; d=json.load(sys.stdin); assert \'turns\' in d; assert isinstance(d[\'turns\'], list); print(\'{}\')"',
+          script: 'echo "$ANANKE" | python3 -c "import sys,json; d=json.load(sys.stdin); assert \'steps\' in d; assert isinstance(d[\'steps\'], list); print(\'{}\')"',
         },
       } as any,
-      { turns: [turnData], turnIndex: 0 }
+      { steps: [stepData], stepIndex: 0 }
     );
     expect(result.passed).toBe(true);
   });
 
   it("receives ANANKE with variables", async () => {
-    const turnData = makeTurnData({ assistantText: "hello" });
+    const stepData = makeStepData({ assistantText: "hello" });
     const variables = { TOKEN: "abc123" };
-    const result = await evaluateTurnAssertions(
-      turnData,
+    const result = await evaluateStepAssertions(
+      stepData,
       {
         text: {
           script: 'echo "$ANANKE" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d[\'variables\'][\'TOKEN\'] == \'abc123\'; print(\'{}\')"',
         },
       } as any,
-      { variables, turns: [], turnIndex: 0 }
+      { variables, steps: [], stepIndex: 0 }
     );
     expect(result.passed).toBe(true);
   });
 
   it("merges variables from assertion script into variable map", async () => {
-    const turnData = makeTurnData({ assistantText: "hello" });
-    const variables = { EXISTING: "old" };
-    const result = await evaluateTurnAssertions(
-      turnData,
+    const stepData = makeStepData({ assistantText: "hello" });
+    const variables: Record<string, string> = { EXISTING: "old" };
+    const result = await evaluateStepAssertions(
+      stepData,
       {
         script: `echo '{"variables": {"NEW_VAR": "new_val"}}'`,
       } as any,
-      { variables, turns: [], turnIndex: 0 }
+      { variables, steps: [], stepIndex: 0 }
     );
     expect(result.passed).toBe(true);
     // Variable should be merged into the shared map
@@ -70,16 +70,16 @@ describe("assertion script — unified contract", () => {
   });
 
   it("ignores unknown fields like action in stdout", async () => {
-    const turnData = makeTurnData({ assistantText: "hello" });
-    const result = await evaluateTurnAssertions(turnData, {
+    const stepData = makeStepData({ assistantText: "hello" });
+    const result = await evaluateStepAssertions(stepData, {
       script: `echo '{"action": "skip_test", "reason": "whatever"}'`,
     } as any);
     expect(result.passed).toBe(true);
   });
 
   it("fails on non-JSON stdout", async () => {
-    const turnData = makeTurnData({ assistantText: "hello" });
-    const result = await evaluateTurnAssertions(turnData, {
+    const stepData = makeStepData({ assistantText: "hello" });
+    const result = await evaluateStepAssertions(stepData, {
       text: { script: "echo 'not json'" },
     } as any);
     expect(result.passed).toBe(false);
@@ -87,8 +87,8 @@ describe("assertion script — unified contract", () => {
   });
 
   it("fails with stderr message on non-zero exit", async () => {
-    const turnData = makeTurnData({ assistantText: "hello" });
-    const result = await evaluateTurnAssertions(turnData, {
+    const stepData = makeStepData({ assistantText: "hello" });
+    const result = await evaluateStepAssertions(stepData, {
       script: "echo 'something broke' >&2 && exit 1",
     } as any);
     expect(result.passed).toBe(false);

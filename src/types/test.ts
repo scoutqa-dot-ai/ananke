@@ -84,53 +84,54 @@ const AssertionNodeSchema: z.ZodType<AssertionNodeInput> = z.lazy(() =>
 );
 
 // ---------------------------------------------------------------------------
-// Assert Block — top-level with selectors + meta combinators
+// Expect Block — top-level with selectors + meta combinators
 // ---------------------------------------------------------------------------
 
-export type AssertBlockInput = {
+export type ExpectBlockInput = {
   text?: AssertionNodeInput;
   tool_names?: AssertionNodeInput;
   tools?: AssertionNodeInput;
   response?: AssertionNodeInput;
-  or?: AssertBlockInput[];
-  and?: AssertBlockInput[];
-  not?: AssertBlockInput;
+  or?: ExpectBlockInput[];
+  and?: ExpectBlockInput[];
+  not?: ExpectBlockInput;
   // Script assertion at top level (operates on full step context)
   script?: string | { run: string; timeout_ms?: number; env?: Record<string, string> };
   // Named assertions (arbitrary keys resolved at evaluation time)
   [key: string]: unknown;
 };
 
-const AssertBlockSchema: z.ZodType<AssertBlockInput> = z.lazy(() =>
+const ExpectBlockSchema: z.ZodType<ExpectBlockInput> = z.lazy(() =>
   z.object({
     text: AssertionNodeSchema.optional(),
     tool_names: AssertionNodeSchema.optional(),
     tools: AssertionNodeSchema.optional(),
     response: AssertionNodeSchema.optional(),
-    or: z.array(AssertBlockSchema).optional(),
-    and: z.array(AssertBlockSchema).optional(),
-    not: AssertBlockSchema.optional(),
+    or: z.array(ExpectBlockSchema).optional(),
+    and: z.array(ExpectBlockSchema).optional(),
+    not: ExpectBlockSchema.optional(),
     script: ScriptSchema.optional(),
   }).passthrough()
 );
 
-export { AssertBlockSchema, AssertionNodeSchema };
+export { ExpectBlockSchema, AssertionNodeSchema };
 
 // ---------------------------------------------------------------------------
-// Test file structure — steps replace turns + hooks
+// Test file structure — steps
 // ---------------------------------------------------------------------------
 
-// User message step — sends a message to the agent
-const UserStepSchema = z.object({
-  type: z.literal("user").optional(),
-  user: z.string(),
-  assert: AssertBlockSchema.optional(),
+// Message step — sends a message to the agent
+const MessageStepSchema = z.object({
+  type: z.literal("message").optional(),
+  message: z.string(),
+  expect: ExpectBlockSchema.optional(),
 }).strict();
 
-// AG-UI connect step (connect to existing thread without sending message)
-const ConnectStepSchema = z.object({
-  type: z.literal("agui:connect"),
-  assert: AssertBlockSchema.optional(),
+// Resume step — resume an existing thread by ID
+const ResumeStepSchema = z.object({
+  type: z.literal("resume"),
+  resume: z.string(),
+  expect: ExpectBlockSchema.optional(),
 }).strict();
 
 // Script step — runs a script to set variables (no message sent to agent)
@@ -139,30 +140,29 @@ const ScriptStepSchema = z.object({
   script: ScriptSchema,
 }).strict();
 
-const StepSchema = z.union([UserStepSchema, ConnectStepSchema, ScriptStepSchema]);
+const StepSchema = z.union([MessageStepSchema, ResumeStepSchema, ScriptStepSchema]);
 
 export const TestFileSchema = z.object({
   version: z.string(),
   name: z.string(),
   steps: z.array(StepSchema).min(1),
-  assert: AssertBlockSchema.optional(),
 }).strict();
 
-export type AssertBlock = z.infer<typeof AssertBlockSchema>;
+export type ExpectBlock = z.infer<typeof ExpectBlockSchema>;
 export type AssertionNode = z.infer<typeof AssertionNodeSchema>;
 export type TestFile = z.infer<typeof TestFileSchema>;
 export type Step = z.infer<typeof StepSchema>;
-export type UserStep = z.infer<typeof UserStepSchema>;
-export type ConnectStep = z.infer<typeof ConnectStepSchema>;
+export type MessageStep = z.infer<typeof MessageStepSchema>;
+export type ResumeStep = z.infer<typeof ResumeStepSchema>;
 export type ScriptStep = z.infer<typeof ScriptStepSchema>;
 
 // Type guards
-export function isUserStep(step: Step): step is UserStep {
-  return "user" in step;
+export function isMessageStep(step: Step): step is MessageStep {
+  return "message" in step;
 }
 
-export function isConnectStep(step: Step): step is ConnectStep {
-  return step.type === "agui:connect";
+export function isResumeStep(step: Step): step is ResumeStep {
+  return step.type === "resume";
 }
 
 export function isScriptStep(step: Step): step is ScriptStep {

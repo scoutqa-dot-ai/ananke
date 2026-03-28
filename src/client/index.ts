@@ -12,6 +12,7 @@ export * from "./types.js";
 
 export interface CreateClientOptions {
   logger?: Logger;
+  threadId?: string;
 }
 
 /**
@@ -31,7 +32,7 @@ export function createClient(
         agentId: target.agentId,
         headers: target.headers,
         timeout_ms: target.timeout_ms,
-        threadId: target.threadId,
+        threadId: options.threadId,
         forwardedProps: target.forwardedProps,
         state: target.state,
         logger: options.logger,
@@ -44,7 +45,7 @@ export function createClient(
         agentId: target.agentId,
         headers: target.headers,
         timeout_ms: target.timeout_ms,
-        threadId: target.threadId,
+        threadId: options.threadId,
         forwardedProps: target.forwardedProps,
         state: target.state,
         wsUrl: target.wsUrl,

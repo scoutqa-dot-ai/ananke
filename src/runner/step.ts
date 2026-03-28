@@ -1,6 +1,6 @@
 import type { ProtocolClient } from "../client/types.js";
 import type { AGUITimestampedEvent, TimestampedEvent } from "../client/events.js";
-import type { TurnData, TurnTimings, ToolCall } from "../types/index.js";
+import type { StepData, StepTimings, ToolCall } from "../types/index.js";
 import type { Logger } from "../logger.js";
 import { truncateLine, formatDuration } from "./format.js";
 import { SLOW_TTF_TEXT_THRESHOLD_MS } from "../constants.js";
@@ -23,31 +23,31 @@ export async function* withPromptSent(
 }
 
 /**
- * Execute a user message turn and collect data
+ * Execute a message step and collect data
  */
-export async function executeTurn(
+export async function executeMessageStep(
   client: ProtocolClient,
   userMessage: string,
-  turnIndex: number,
+  stepIndex: number,
   options?: { logger?: Logger },
-): Promise<TurnData> {
-  const events = withPromptSent(client.sendMessage({ message: userMessage }));
-  return collectTurnData(events, turnIndex, options);
+): Promise<StepData> {
+  const events = withPromptSent(client.message(userMessage));
+  return collectStepData(events, stepIndex, options);
 }
 
 /**
- * Execute a connect turn (no message, just observe) and collect data
+ * Execute a resume step (no message, just observe) and collect data
  */
-export async function executeConnectTurn(
+export async function executeResumeStep(
   client: ProtocolClient,
-  turnIndex: number,
+  stepIndex: number,
   options?: { logger?: Logger },
-): Promise<TurnData> {
-  if (!client.connect) {
-    throw new Error("Client does not support connect operation");
+): Promise<StepData> {
+  if (!client.resume) {
+    throw new Error("Client does not support resume operation");
   }
-  const events = withPromptSent(client.connect());
-  return collectTurnData(events, turnIndex, options);
+  const events = withPromptSent(client.resume());
+  return collectStepData(events, stepIndex, options);
 }
 
 export interface CollectOptions {
@@ -55,14 +55,14 @@ export interface CollectOptions {
 }
 
 /**
- * Collect turn data from an event stream
+ * Collect step data from an event stream
  * Uses timestamps from events (arrival time) for accurate timing
  */
-export async function collectTurnData(
+export async function collectStepData(
   events: AsyncGenerator<TimestampedEvent>,
-  turnIndex: number,
+  stepIndex: number,
   options?: CollectOptions,
-): Promise<TurnData> {
+): Promise<StepData> {
   const toolCalls: ToolCall[] = [];
   const pendingToolCalls = new Map<string, PendingToolCall>();
   let assistantText = "";
@@ -70,7 +70,7 @@ export async function collectTurnData(
   let endTs: number | null = null;
   let lastEventTs: number | null = null;
   const logger = options?.logger;
-  const timings: TurnTimings = {
+  const timings: StepTimings = {
     ttfEventMs: null,
     ttfToolMs: null,
     ttfTextMs: null,
@@ -105,7 +105,7 @@ export async function collectTurnData(
       timings.ttfTextMs = elapsed;
       if (timings.ttfTextMs >= SLOW_TTF_TEXT_THRESHOLD_MS) {
         logger?.warn(
-          `[turn] Slow time-to-first-text: ${formatDuration(timings.ttfTextMs)}`,
+          `[step] Slow time-to-first-text: ${formatDuration(timings.ttfTextMs)}`,
         );
       }
     }
@@ -135,14 +135,14 @@ export async function collectTurnData(
 
   const fmt = (ms: number | null) => (ms === null ? "-" : formatDuration(ms));
   logger?.trace(
-    `[turn] Timings: event=${fmt(timings.ttfEventMs)} tool=${fmt(timings.ttfToolMs)} text=${fmt(timings.ttfTextMs)}`,
+    `[step] Timings: event=${fmt(timings.ttfEventMs)} tool=${fmt(timings.ttfToolMs)} text=${fmt(timings.ttfTextMs)}`,
   );
 
   // Fallback to current time if no events received
   const now = Date.now();
 
   return {
-    turnIndex,
+    stepIndex,
     toolCalls,
     assistantText,
     startTs: startTs ?? now,

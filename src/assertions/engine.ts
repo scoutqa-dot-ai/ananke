@@ -1,12 +1,12 @@
-import type { TurnData, TestData } from "../types/data.js";
-import type { AssertBlock } from "../types/test.js";
+import type { StepData } from "../types/data.js";
+import type { ExpectBlock } from "../types/test.js";
 import type { Variables } from "../config/interpolate.js";
 import type { AssertionResult, EvalContext, ScriptRunnerFn } from "./types.js";
 import type { Logger } from "../logger.js";
 import { evaluate, type AssertionNode } from "./evaluator.js";
 import { extractSelector, SELECTOR_KEYS, type SelectorData } from "./selectors.js";
 import {
-  resolveAssertBlock,
+  resolveExpectBlock,
   type NamedAssertions,
 } from "./resolver.js";
 import {
@@ -21,10 +21,10 @@ export interface EvaluationOptions {
   logger?: Logger;
   /** Current variables map — passed to scripts and updated with script output */
   variables?: Variables;
-  /** Completed turns so far — passed to scripts via ANANKE */
-  turns?: TurnData[];
-  /** Current turn index — passed to scripts via ANANKE */
-  turnIndex?: number | null;
+  /** Completed steps so far — passed to scripts via ANANKE */
+  steps?: StepData[];
+  /** Current step index — passed to scripts via ANANKE */
+  stepIndex?: number | null;
 }
 
 export interface EvaluationResult {
@@ -45,9 +45,9 @@ function createScriptRunner(
     const config = normalizeScriptConfig(operand);
     const ananke = buildAnankeInput({
       value,
-      turns: options?.turns,
+      steps: options?.steps,
       variables: options?.variables,
-      turnIndex: options?.turnIndex,
+      stepIndex: options?.stepIndex,
     });
 
     const result = await executeScript(config, ananke, {
@@ -88,16 +88,16 @@ function createScriptRunner(
  * Evaluate an assert block against selector data.
  * Handles selector keys and top-level meta (and/or/not).
  */
-async function evaluateAssertBlock(
+async function evaluateExpectBlock(
   selectorData: SelectorData,
-  assertions: AssertBlock,
+  assertions: ExpectBlock,
   ctx: EvalContext,
 ): Promise<AssertionResult[]> {
   const results: AssertionResult[] = [];
 
   // Handle selector keys
   for (const selectorName of SELECTOR_KEYS) {
-    const node = assertions[selectorName as keyof AssertBlock];
+    const node = assertions[selectorName as keyof ExpectBlock];
     if (node !== undefined) {
       const value = extractSelector(selectorName, selectorData);
       results.push(
@@ -108,12 +108,12 @@ async function evaluateAssertBlock(
 
   // Handle top-level meta: or, and, not (these wrap full assert blocks)
   if (assertions.or) {
-    const branches = assertions.or as AssertBlock[];
+    const branches = assertions.or as ExpectBlock[];
     const branchChildren: AssertionResult[] = [];
     let anyPassed = false;
 
     for (let i = 0; i < branches.length; i++) {
-      const branchResults = await evaluateAssertBlock(selectorData, branches[i], ctx);
+      const branchResults = await evaluateExpectBlock(selectorData, branches[i], ctx);
       const failures = branchResults.filter((r) => !r.passed);
       if (failures.length === 0) {
         anyPassed = true;
@@ -136,15 +136,15 @@ async function evaluateAssertBlock(
   }
 
   if (assertions.and) {
-    const branches = assertions.and as AssertBlock[];
+    const branches = assertions.and as ExpectBlock[];
     for (const branch of branches) {
-      results.push(...await evaluateAssertBlock(selectorData, branch, ctx));
+      results.push(...await evaluateExpectBlock(selectorData, branch, ctx));
     }
   }
 
   if (assertions.not) {
-    const branch = assertions.not as AssertBlock;
-    const innerResults = await evaluateAssertBlock(selectorData, branch, ctx);
+    const branch = assertions.not as ExpectBlock;
+    const innerResults = await evaluateExpectBlock(selectorData, branch, ctx);
     const failures = innerResults.filter((r) => !r.passed);
     if (failures.length === 0) {
       results.push({
@@ -199,26 +199,26 @@ function buildEvalContext(options?: EvaluationOptions): EvalContext {
 }
 
 /**
- * Evaluate turn-level assertions
+ * Evaluate step-level assertions
  */
-export async function evaluateTurnAssertions(
-  turnData: TurnData,
-  assertions: AssertBlock,
+export async function evaluateStepAssertions(
+  stepData: StepData,
+  assertions: ExpectBlock,
   options?: EvaluationOptions
 ): Promise<EvaluationResult> {
   const resolved = options?.namedAssertions
-    ? resolveAssertBlock(assertions, options.namedAssertions)
+    ? resolveExpectBlock(assertions, options.namedAssertions)
     : assertions;
 
   const selectorData: SelectorData = {
-    assistantText: turnData.assistantText,
-    toolCalls: turnData.toolCalls,
-    startTs: turnData.startTs,
-    endTs: turnData.endTs,
+    assistantText: stepData.assistantText,
+    toolCalls: stepData.toolCalls,
+    startTs: stepData.startTs,
+    endTs: stepData.endTs,
   };
 
   const ctx = buildEvalContext(options);
-  const results = await evaluateAssertBlock(selectorData, resolved, ctx);
+  const results = await evaluateExpectBlock(selectorData, resolved, ctx);
   const failures = results.filter((r) => !r.passed);
   return {
     passed: failures.length === 0,
@@ -227,31 +227,3 @@ export async function evaluateTurnAssertions(
   };
 }
 
-/**
- * Evaluate test-level assertions
- */
-export async function evaluateTestAssertions(
-  testData: TestData,
-  assertions: AssertBlock,
-  options?: EvaluationOptions
-): Promise<EvaluationResult> {
-  const resolved = options?.namedAssertions
-    ? resolveAssertBlock(assertions, options.namedAssertions)
-    : assertions;
-
-  const selectorData: SelectorData = {
-    assistantText: testData.allAssistantTexts.join("\n"),
-    toolCalls: testData.allToolCalls,
-    startTs: testData.startTs,
-    endTs: testData.endTs,
-  };
-
-  const ctx = buildEvalContext(options);
-  const results = await evaluateAssertBlock(selectorData, resolved, ctx);
-  const failures = results.filter((r) => !r.passed);
-  return {
-    passed: failures.length === 0,
-    results,
-    failures,
-  };
-}

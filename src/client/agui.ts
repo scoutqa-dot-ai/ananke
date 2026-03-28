@@ -7,7 +7,6 @@ import {
 import { convertToAGUIEvent } from "./events.js";
 import { DEFAULT_CLIENT_TIMEOUT_MS, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_MS } from "../constants.js";
 import type { AGUITimestampedEvent } from "./events.js";
-import type { SendMessageOptions } from "./types.js";
 import type { Logger } from "../logger.js";
 
 export interface AGUIClientOptions {
@@ -63,9 +62,7 @@ export class AGUIClient {
   /**
    * Send a message and stream events via SSE (agent/run)
    */
-  async *sendMessage(
-    options: SendMessageOptions
-  ): AsyncGenerator<AGUITimestampedEvent> {
+  async *message(text: string): AsyncGenerator<AGUITimestampedEvent> {
     const input: RunAgentInput = {
       context: [],
       forwardedProps: this.forwardedProps,
@@ -73,16 +70,16 @@ export class AGUIClient {
       state: this.state,
       threadId: this.threadId,
       tools: [],
-      messages: [{ id: randomUUID(), role: "user", content: options.message }],
+      messages: [{ id: randomUUID(), role: "user", content: text }],
     };
 
     yield* this.executeRequest("agent/run", input);
   }
 
   /**
-   * Connect to existing thread without sending a message (agent/connect)
+   * Resume an existing thread without sending a message (agent/connect)
    */
-  async *connect(): AsyncGenerator<AGUITimestampedEvent> {
+  async *resume(): AsyncGenerator<AGUITimestampedEvent> {
     const input: RunAgentInput = {
       context: [],
       forwardedProps: this.forwardedProps,
@@ -212,4 +209,3 @@ export class AGUIClient {
     }
   }
 }
-

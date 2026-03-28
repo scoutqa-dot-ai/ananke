@@ -25,23 +25,23 @@ describe("buildAnankeInput", () => {
     const input = buildAnankeInput({});
     expect(input).toEqual({
       value: null,
-      turns: [],
+      steps: [],
       variables: {},
-      turnIndex: null,
+      stepIndex: null,
     });
   });
 
   it("passes through provided values", () => {
     const input = buildAnankeInput({
       value: "test_value",
-      turns: [{ turnIndex: 0, toolCalls: [], assistantText: "hi", startTs: 0, endTs: 1, timings: { ttfEventMs: null, ttfToolMs: null, ttfTextMs: null } }],
+      steps: [{ stepIndex: 0, toolCalls: [], assistantText: "hi", startTs: 0, endTs: 1, timings: { ttfEventMs: null, ttfToolMs: null, ttfTextMs: null } }],
       variables: { A: "1" },
-      turnIndex: 2,
+      stepIndex: 2,
     });
     expect(input.value).toBe("test_value");
-    expect(input.turns).toHaveLength(1);
+    expect(input.steps).toHaveLength(1);
     expect(input.variables).toEqual({ A: "1" });
-    expect(input.turnIndex).toBe(2);
+    expect(input.stepIndex).toBe(2);
   });
 });
 

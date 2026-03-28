@@ -15,33 +15,23 @@ During assertion evaluation, the system has access to this data:
 ### Step-level
 
 ```typescript
-interface TurnData {
-  turnIndex: number;
-  toolCalls: ToolCall[];   // array of objects
-  assistantText: string;   // full response text
-  startTs: number;         // first event timestamp (ms)
-  endTs: number;           // last event timestamp (ms)
+interface StepData {
+  stepIndex: number;
+  toolCalls: ToolCall[]; // array of objects
+  assistantText: string; // full response text
+  startTs: number; // first event timestamp (ms)
+  endTs: number; // last event timestamp (ms)
 }
 
 interface ToolCall {
   name: string;
   args: Record<string, unknown>;
   result: unknown;
-  timestamp: number;       // event arrival time (ms)
+  timestamp: number; // event arrival time (ms)
 }
 ```
 
-### Test-level (aggregated across all steps)
-
-```typescript
-interface TestData {
-  steps: TurnData[];
-  allToolCalls: ToolCall[];
-  allAssistantTexts: string[];
-  startTs: number;
-  endTs: number;
-}
-```
+Data is collected per-step only. There are no test-level aggregated assertions.
 
 ## Operator Categories
 
@@ -55,14 +45,14 @@ Data flows: **selector → transform\* → assertion**
 
 ### Selectors
 
-Selectors are the top-level keys in an `assert` block. Each extracts a typed value from the response.
+Selectors are the top-level keys in an `expect` block. Each extracts a typed value from the response.
 
-| Selector | Type | Extracts |
-|---|---|---|
-| `text` | string | `assistantText` (step) or `allAssistantTexts.join("\n")` (test) |
-| `tool_names` | array\<string\> | `toolCalls.map(c => c.name)` |
-| `tools` | array\<object\> | `toolCalls` (full ToolCall objects) |
-| `response` | object | Flat object with computed response metrics (see below) |
+| Selector     | Type            | Extracts                                               |
+| ------------ | --------------- | ------------------------------------------------------ |
+| `text`       | string          | `assistantText` from StepData                          |
+| `tool_names` | array\<string\> | `toolCalls.map(c => c.name)`                           |
+| `tools`      | array\<object\> | `toolCalls` (full ToolCall objects)                    |
+| `response`   | object          | Flat object with computed response metrics (see below) |
 
 #### `response` Object Fields
 
@@ -70,29 +60,29 @@ The `response` selector returns the full response data as a flat camelCase objec
 
 **Raw fields:**
 
-| Field | Type | Description |
-|---|---|---|
-| `assistantText` | string | Full response text (same as `text` selector) |
-| `toolCalls` | array\<object\> | Full tool call objects (same as `tools` selector) |
-| `startTs` | number | Epoch ms when first event arrived |
-| `endTs` | number | Epoch ms when last event arrived |
+| Field           | Type            | Description                                       |
+| --------------- | --------------- | ------------------------------------------------- |
+| `assistantText` | string          | Full response text (same as `text` selector)      |
+| `toolCalls`     | array\<object\> | Full tool call objects (same as `tools` selector) |
+| `startTs`       | number          | Epoch ms when first event arrived                 |
+| `endTs`         | number          | Epoch ms when last event arrived                  |
 
 **Computed fields:**
 
-| Field | Type | Description |
-|---|---|---|
-| `durationMs` | number | `endTs - startTs` |
-| `idleMs` | number | Max gap among: start-to-first-tool, between consecutive tools, last-tool-to-end. If zero tool calls, `idleMs` = `endTs - startTs`. |
+| Field        | Type   | Description                                                                                                                        |
+| ------------ | ------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `durationMs` | number | `endTs - startTs`                                                                                                                  |
+| `idleMs`     | number | Max gap among: start-to-first-tool, between consecutive tools, last-tool-to-end. If zero tool calls, `idleMs` = `endTs - startTs`. |
 
 ### Transforms
 
 Transforms reshape data before assertions are applied. They do not produce pass/fail themselves.
 
-| Transform | Input → Output | Description |
-|---|---|---|
-| `json` | string → any | Parse JSON string into structured data |
-| `filter` | array → array | Keep elements matching a predicate, assert on sub-array |
-| `having` | object → (shorthand) | Dot-path keys for multiple field assertions on an object |
+| Transform | Input → Output       | Description                                              |
+| --------- | -------------------- | -------------------------------------------------------- |
+| `json`    | string → any         | Parse JSON string into structured data                   |
+| `filter`  | array → array        | Keep elements matching a predicate, assert on sub-array  |
+| `having`  | object → (shorthand) | Dot-path keys for multiple field assertions on an object |
 
 **Note:** `filter` (listed under Array assertions) and `having` (listed under Object assertions) appear in both tables for discoverability, but they are transforms — they reshape data and delegate to nested assertions. They do not produce pass/fail themselves.
 
@@ -104,52 +94,52 @@ Assertions evaluate a value and produce pass/fail.
 
 **String** — applies when value is a string:
 
-| Operator | Description |
-|---|---|
-| `equals` | Exact string match |
-| `contains` | Substring match |
-| `starts_with` | String prefix match |
-| `ends_with` | String suffix match |
-| `matches` | Regex pattern(s) that must all match |
+| Operator      | Description                          |
+| ------------- | ------------------------------------ |
+| `equals`      | Exact string match                   |
+| `contains`    | Substring match                      |
+| `starts_with` | String prefix match                  |
+| `ends_with`   | String suffix match                  |
+| `matches`     | Regex pattern(s) that must all match |
 
 All regex operators accept a single string or array of strings. Patterns use `/pattern/flags` syntax for regex flags (e.g. `/hello/i`).
 
 **Number** — applies when value is a number:
 
-| Operator | Description |
-|---|---|
-| `equals` | Equals this value |
-| `min` | Greater than or equal to |
-| `max` | Less than or equal to |
+| Operator | Description              |
+| -------- | ------------------------ |
+| `equals` | Equals this value        |
+| `min`    | Greater than or equal to |
+| `max`    | Less than or equal to    |
 
 **Array** — applies when value is an array:
 
-| Operator | Description |
-|---|---|
-| `contains` | Element exists in the array (sugar for `some: { equals: X }`) |
-| `count` | Number assertion on array length |
-| `every` | All elements must satisfy the assertion |
-| `some` | At least one element must satisfy the assertion |
-| `none` | No element may satisfy the assertion |
-| `ordered` | Elements matching each assertion appear in order (not necessarily adjacent) |
-| `filter` | Transform: keep matching elements, then apply assertions on the sub-array |
+| Operator   | Description                                                                 |
+| ---------- | --------------------------------------------------------------------------- |
+| `contains` | Element exists in the array (sugar for `some: { equals: X }`)               |
+| `count`    | Number assertion on array length                                            |
+| `every`    | All elements must satisfy the assertion                                     |
+| `some`     | At least one element must satisfy the assertion                             |
+| `none`     | No element may satisfy the assertion                                        |
+| `ordered`  | Elements matching each assertion appear in order (not necessarily adjacent) |
+| `filter`   | Transform: keep matching elements, then apply assertions on the sub-array   |
 
 **Object** — applies when value is an object:
 
-| Operator | Description |
-|---|---|
-| `has_key` | Key exists on the object |
-| `having` | Transform: dot-path shorthand for multiple field assertions (implicit AND) |
+| Operator  | Description                                                                |
+| --------- | -------------------------------------------------------------------------- |
+| `has_key` | Key exists on the object                                                   |
+| `having`  | Transform: dot-path shorthand for multiple field assertions (implicit AND) |
 
 Use `not: { has_key: "x" }` to assert a key does not exist.
 
 **Meta** — applies to any type:
 
-| Operator | Description |
-|---|---|
-| `and` | All assertions must pass |
-| `or` | At least one assertion must pass |
-| `not` | Invert the result |
+| Operator | Description                       |
+| -------- | --------------------------------- |
+| `and`    | All assertions must pass          |
+| `or`     | At least one assertion must pass  |
+| `not`    | Invert the result                 |
 | `script` | Custom script evaluates the value |
 
 Multiple keys at the same level are implicitly ANDed.
@@ -196,8 +186,8 @@ Named assertions are used by name, exactly like built-in operators:
 
 ```yaml
 steps:
-  - user: "What's the status of project P1?"
-    assert:
+  - message: "What's the status of project P1?"
+    expect:
       fast_response: {}
       calls_intent_agent: {}
       text: { matches: "status" }
@@ -227,8 +217,8 @@ assertions:
 ```yaml
 # Usage (in test file)
 steps:
-  - user: "Find iterations"
-    assert:
+  - message: "Find iterations"
+    expect:
       tool_called_n_times: { tool_name: "search", n: 2 }
       completes_within: { ms: 10000 }
 ```
@@ -241,8 +231,8 @@ Named assertions work inside `and`, `or`, `not` like any other operator:
 
 ```yaml
 steps:
-  - user: "Generate report"
-    assert:
+  - message: "Generate report"
+    expect:
       or:
         - and:
             - calls_intent_agent: {}
@@ -274,26 +264,24 @@ script: "scripts/verify_user_exists.sh"
 
 **Long form** — accepts an object for full control:
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `run` | string | yes | Command or script path to execute |
-| `timeout_ms` | number | no | Max execution time. Default: `10000` |
-| `env` | object | no | Additional environment variables |
+| Field        | Type   | Required | Description                          |
+| ------------ | ------ | -------- | ------------------------------------ |
+| `run`        | string | yes      | Command or script path to execute    |
+| `timeout_ms` | number | no       | Max execution time. Default: `10000` |
+| `env`        | object | no       | Additional environment variables     |
 
-The current value is passed to the script via:
-- `ASSERT_VALUE` env var (JSON-encoded)
-- `stdin` (JSON-encoded)
-- `ASSERT_CONTEXT` env var contains the full step/test context (JSON)
+The current value and context are passed to the script via the `ANANKE` env var (JSON-encoded) and `stdin` (JSON-encoded).
 
 **Pass/fail rules:**
+
 - Exit code `0` → pass
 - Exit code non-zero → fail; stderr is captured as the failure reason
 
 ```yaml
 # Short form
 steps:
-  - user: "Create user John"
-    assert:
+  - message: "Create user John"
+    expect:
       tools:
         some:
           having:
@@ -303,8 +291,8 @@ steps:
 
 # Long form — custom timeout and env
 steps:
-  - user: "Send the webhook"
-    assert:
+  - message: "Send the webhook"
+    expect:
       script:
         run: "scripts/check_webhook_received.sh"
         timeout_ms: 15000
@@ -313,14 +301,14 @@ steps:
 
 # Short form with inline command
 steps:
-  - user: "Write the config file"
-    assert:
+  - message: "Write the config file"
+    expect:
       tools:
         some:
           having:
             name: { equals: "write_file" }
             args.path:
-              script: 'test -f "$ASSERT_VALUE" && grep -q "expected content" "$ASSERT_VALUE"'
+              script: 'test -f "$(echo $ANANKE | jq -r .value)" && grep -q "expected content" "$(echo $ANANKE | jq -r .value)"'
 ```
 
 **Security:** Scripts must be committed to the repository. The runner resolves script paths relative to the project root. Scripts execute with the test runner's permissions.
@@ -341,8 +329,8 @@ assertions:
 ```yaml
 # test file
 steps:
-  - user: "Create the project"
-    assert:
+  - message: "Create the project"
+    expect:
       tools:
         some:
           having:
@@ -360,15 +348,18 @@ When `and` (or implicit AND from multiple sibling keys) has multiple children an
 Operators are type-specific. If an operator receives a value of the wrong type, the assertion **fails** with a clear error message describing the mismatch.
 
 For selectors, the type is always known:
+
 - `text` always produces a string
 - `tools` always produces an array
 - `response` always produces an object
 
 For transforms, the output type depends on the data at runtime:
+
 - `json` parses a string into any type (object, array, number, string, boolean)
 - `having` extracts values of any type from an object
 
 When a type mismatch occurs, the assertion result includes:
+
 - The operator that failed
 - The expected type(s)
 - The actual type and value received
@@ -493,21 +484,23 @@ Inside `having`, every key is interpreted as a dot-path into the object. This av
 ### S1: Pure conversation, no tools
 
 ```yaml
-assert:
-  text:
-    matches:
-      - "Kai"
-      - "TestOps|TrueTest"
-  tools:
-    count: { equals: 0 }
+steps:
+  - message: "Tell me about Katalon TestOps"
+    expect:
+      text:
+        matches:
+          - "Kai"
+          - "TestOps|TrueTest"
+      tools:
+        count: { equals: 0 }
 ```
 
 ### S2: Single tool use
 
 ```yaml
 steps:
-  - user: "What's the status of project P1?"
-    assert:
+  - message: "What's the status of project P1?"
+    expect:
       tool_names:
         some: { equals: "get_project_status" }
       text:
@@ -521,8 +514,8 @@ steps:
 
 ```yaml
 steps:
-  - user: "Find iterations for project P1 and show details"
-    assert:
+  - message: "Find iterations for project P1 and show details"
+    expect:
       tool_names:
         ordered:
           - equals: "intent_agent"
@@ -537,8 +530,8 @@ steps:
 
 ```yaml
 steps:
-  - user: "Give me a comprehensive quality report for project P1"
-    assert:
+  - message: "Give me a comprehensive quality report for project P1"
+    expect:
       tool_names:
         some: { matches: "get_.*_insights" }
         none: { matches: "stability_.*" }
@@ -554,12 +547,12 @@ steps:
 
 ```yaml
 steps:
-  - user: "Set up the project"
-    assert:
+  - message: "Set up the project"
+    expect:
       tool_names:
         some: { equals: "intent_agent" }
-  - user: "Generate test URLs for the latest iteration"
-    assert:
+  - message: "Generate test URLs for the latest iteration"
+    expect:
       tool_names:
         ordered:
           - equals: "intent_agent"
@@ -573,8 +566,8 @@ steps:
 
 ```yaml
 steps:
-  - user: "Generate report"
-    assert:
+  - message: "Generate report"
+    expect:
       or:
         - and:
             - text: { matches: "draft|report" }
@@ -588,14 +581,14 @@ steps:
 
 ```yaml
 steps:
-  - user: "Tell me about Katalon TestOps"
-    assert:
+  - message: "Tell me about Katalon TestOps"
+    expect:
       tools:
         count: { equals: 0 }
       text:
         matches: "Kai"
-  - user: "Find test results for project ${ENV.PROJECT_ID}"
-    assert:
+  - message: "Find test results for project ${ENV.PROJECT_ID}"
+    expect:
       tool_names:
         ordered:
           - equals: "intent_agent"
@@ -613,86 +606,102 @@ steps:
 
 ```yaml
 # Simple: is "search" in the tool names?
-assert:
-  tool_names:
-    contains: "search"
+steps:
+  - message: "Search for something"
+    expect:
+      tool_names:
+        contains: "search"
 
 # Equivalent to:
-assert:
-  tool_names:
-    some: { equals: "search" }
+steps:
+  - message: "Search for something"
+    expect:
+      tool_names:
+        some: { equals: "search" }
 ```
 
 ### Require pattern: tool called N times with specific args
 
 ```yaml
 # "search" called exactly 2 times with query matching "weather"
-assert:
-  tools:
-    filter:
-      having:
-        name: { equals: "search" }
-        args.query: { matches: "weather" }
-    count: { equals: 2 }
+steps:
+  - message: "Search for weather data twice"
+    expect:
+      tools:
+        filter:
+          having:
+            name: { equals: "search" }
+            args.query: { matches: "weather" }
+        count: { equals: 2 }
 ```
 
 ### Forbid pattern: block specific tool+args combination
 
 ```yaml
 # Forbid database_query on users table returning passwords
-assert:
-  tools:
-    none:
-      having:
-        name: { equals: "database_query" }
-        args.table: { equals: "users" }
-        result.json.data: { matches: "password" }
+steps:
+  - message: "Query user data"
+    expect:
+      tools:
+        none:
+          having:
+            name: { equals: "database_query" }
+            args.table: { equals: "users" }
+            result.json.data: { matches: "password" }
 ```
 
 ### JSON tool results
 
 ```yaml
 # Assert on parsed JSON in tool result
-assert:
-  tools:
-    some:
-      having:
-        name: { equals: "get_report" }
-        result.json.status: { equals: "ok" }
-        result.json.items: { count: { min: 1 } }
-        result.json.score: { min: 80, max: 100 }
+steps:
+  - message: "Get the report"
+    expect:
+      tools:
+        some:
+          having:
+            name: { equals: "get_report" }
+            result.json.status: { equals: "ok" }
+            result.json.items: { count: { min: 1 } }
+            result.json.score: { min: 80, max: 100 }
 ```
 
 ### Complex filter + assertions on filtered results
 
 ```yaml
 # Of all get_* tools, at least 3 exist, and all returned success
-assert:
-  tools:
-    filter:
-      having:
-        name: { matches: "get_.*" }
-    count: { min: 3 }
-    every:
-      having:
-        result.json.status: { equals: "success" }
+steps:
+  - message: "Give me a comprehensive quality report"
+    expect:
+      tools:
+        filter:
+          having:
+            name: { matches: "get_.*" }
+        count: { min: 3 }
+        every:
+          having:
+            result.json.status: { equals: "success" }
 ```
 
 ### Negation with `not`
 
 ```yaml
 # Text must NOT match a pattern
-assert:
-  text:
-    not:
-      matches: "def sort|sorted\\("
+steps:
+  - message: "Explain sorting algorithms"
+    expect:
+      text:
+        not:
+          matches: "def sort|sorted\\("
 
 # Key must NOT exist
-assert:
-  tools:
-    some:
-      not:
-        has_key: "error"
+steps:
+  - message: "Fetch data"
+    expect:
+      tools:
+        some:
+          not:
+            has_key: "error"
 ```
 
 ### Named assertions with parameters
@@ -710,8 +719,8 @@ assert:
 #       duration_ms: { max: "${ms}" }
 
 steps:
-  - user: "Search for weather data twice"
-    assert:
+  - message: "Search for weather data twice"
+    expect:
       tool_called_n_times: { tool_name: "search", n: 2 }
       completes_within: { ms: 10000 }
       text: { matches: "weather" }
@@ -730,8 +739,8 @@ steps:
 #           ID_FIELD: "${id_field}"
 
 steps:
-  - user: "Create the project"
-    assert:
+  - message: "Create the project"
+    expect:
       tool_called_n_times: { tool_name: "create_project", n: 1 }
       tools:
         some:

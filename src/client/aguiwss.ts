@@ -112,9 +112,7 @@ export class AGUIWSSClient {
     this.wsStompHeaders = options.wsStompHeaders ?? {};
   }
 
-  async *sendMessage(options: {
-    message: string;
-  }): AsyncGenerator<AGUITimestampedEvent> {
+  async *message(text: string): AsyncGenerator<AGUITimestampedEvent> {
     let processedEventCount = 0;
     const eventQueue: AGUITimestampedEvent[] = [];
     let done = false;
@@ -176,7 +174,7 @@ export class AGUIWSSClient {
     // Send HTTP message
     try {
       this.logger?.trace(`[AGUIWSS] Sending message to ${this.endpoint}/${this.agentId}/run`);
-      await this.sendHttpMessage(options.message);
+      await this.sendHttpMessage(text);
     } catch (err) {
       if (activeTimeoutId) clearTimeout(activeTimeoutId);
       await this.cleanup();
