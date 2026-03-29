@@ -18,7 +18,7 @@ const AGUITargetSchema = z.object({
   type: z.literal("agui"),
   ...CommonTargetFields,
   // AG-UI specific fields
-  endpoint: z.string().url(),
+  endpoint: z.string(),
   agentId: z.string(),
   forwardedProps: z.record(z.unknown()).optional(),
   state: z.record(z.unknown()).optional(),
@@ -29,13 +29,13 @@ const AGUIWSSTargetSchema = z.object({
   type: z.literal("aguiwss"),
   ...CommonTargetFields,
   // HTTP endpoint for sending messages
-  endpoint: z.string().url(),
+  endpoint: z.string(),
   agentId: z.string(),
   forwardedProps: z.record(z.unknown()).optional(),
   state: z.record(z.unknown()).optional(),
   // WebSocket/STOMP options for receiving events
-  wsUrl: z.string().startsWith("wss://").or(z.string().startsWith("ws://")),
-  wsTopic: z.string().startsWith("/"),
+  wsUrl: z.string(),
+  wsTopic: z.string(),
   wsHeaders: z.record(z.string()).optional(),
   wsStompHeaders: z.record(z.string()).optional(),
 }).strict();
