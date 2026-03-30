@@ -109,6 +109,10 @@ export async function collectStepData(
   logger?.trace(
     `[step] Timings: event=${fmt(timings.ttfEventMs)} tool=${fmt(timings.ttfToolMs)} text=${fmt(timings.ttfTextMs)}`,
   );
+  logger?.debug(`[step] assistantText (${assistantText.length} chars): "${truncateLine(assistantText)}"`);
+  if (assistantText.length === 0) {
+    logger?.warn(`[step] WARNING: assistantText is empty — no TEXT_MESSAGE_CONTENT events were received`);
+  }
 
   // Fallback to current time if no events received
   const now = Date.now();

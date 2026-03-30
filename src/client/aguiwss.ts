@@ -113,7 +113,8 @@ export class AGUIWSSClient {
   }
 
   async *message(text: string): AsyncGenerator<TimestampedProtocolEvent> {
-    let processedEventCount = 0;
+    const seenEventIds = new Set<string>();
+    const seenTextLengths = new Map<string, number>();
     const eventQueue: TimestampedProtocolEvent[] = [];
     let done = false;
     let error: Error | undefined;
@@ -143,12 +144,49 @@ export class AGUIWSSClient {
 
       scheduleTimeout();
 
-      const newEvents = events.slice(processedEventCount);
-      processedEventCount = events.length;
+      // Deduplicate using event IDs — the server sends the full accumulated
+      // event list each time, and may replace/rewrite earlier entries, so we
+      // cannot rely on array position for dedup.
+      //
+      // For TEXT_MESSAGE_CONTENT the server re-sends the same event ID with a
+      // growing `delta` that contains the full text so far.  We convert that
+      // into an incremental delta so downstream consumers (collectStepData)
+      // can simply append.
+      for (const raw of events) {
+        const obj = raw as Record<string, unknown>;
+        const eventId = String(obj.eventId ?? obj.id ?? "");
+        const eventType = String(obj.type ?? "");
 
-      for (const raw of newEvents) {
+        // For TEXT_MESSAGE_CONTENT: compute incremental delta from cumulative
+        if (eventType === "TEXT_MESSAGE_CONTENT" && eventId) {
+          const fullDelta = String(obj.delta ?? "");
+          const prevLen = seenTextLengths.get(eventId) ?? 0;
+          seenTextLengths.set(eventId, fullDelta.length);
+          seenEventIds.add(eventId);
+
+          if (fullDelta.length <= prevLen) continue; // No new text
+
+          const incrementalDelta = fullDelta.slice(prevLen);
+          const aguiEvent: TimestampedProtocolEvent = {
+            type: "TEXT_MESSAGE_CONTENT",
+            messageId: String(obj.messageId ?? ""),
+            delta: incrementalDelta,
+            "ananke:ts": Date.now(),
+          };
+          eventQueue.push(aguiEvent);
+          continue;
+        }
+
+        // Skip events we've already processed (by ID)
+        if (eventId && seenEventIds.has(eventId)) continue;
+        if (eventId) seenEventIds.add(eventId);
+
         const parsed = eventSchema.safeParse(raw);
-        if (!parsed.success) continue;
+        if (!parsed.success) {
+          this.logger?.debug(`[AGUIWSS] Event failed schema parse: ${parsed.error.message}`);
+          this.logger?.trace(`[AGUIWSS] Raw event: ${JSON.stringify(raw).slice(0, 500)}`);
+          continue;
+        }
         const event = parsed.data;
 
         const aguiEvent = toProtocolEvent(event);
@@ -158,9 +196,10 @@ export class AGUIWSSClient {
           if (event.type === "RUN_FINISHED" || event.type === "RUN_ERROR") {
             done = true;
           }
+        } else {
+          this.logger?.trace(`[AGUIWSS] Event type "${event.type}" not mapped to protocol event, skipped`);
         }
       }
-
       resolveWaiting?.();
     };
 
@@ -251,8 +290,19 @@ export class AGUIWSSClient {
         client.subscribe(
           this.wsTopic,
           (message: IMessage) => {
-            const parsed = messageSchema.safeParse(JSON.parse(message.body));
-            if (parsed.success && parsed.data.additionalData) {
+            let body: unknown;
+            try {
+              body = JSON.parse(message.body);
+            } catch (err) {
+              this.logger?.debug(`[AGUIWSS] Failed to parse message body as JSON: ${err instanceof Error ? err.message : err}`);
+              return;
+            }
+            const parsed = messageSchema.safeParse(body);
+            if (!parsed.success) {
+              this.logger?.debug(`[AGUIWSS] Message failed schema validation: ${parsed.error.message}`);
+              return;
+            }
+            if (parsed.data.additionalData) {
               onEvent(parsed.data.additionalData);
             }
           },
