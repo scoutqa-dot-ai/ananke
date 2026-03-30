@@ -157,12 +157,15 @@ export class AGUIWSSClient {
         const eventId = String(obj.eventId ?? obj.id ?? "");
         const eventType = String(obj.type ?? "");
 
-        // For TEXT_MESSAGE_CONTENT: compute incremental delta from cumulative
-        if (eventType === "TEXT_MESSAGE_CONTENT" && eventId) {
+        // For TEXT_MESSAGE_CONTENT: compute incremental delta from cumulative.
+        // The server re-sends the same message with a growing delta but
+        // assigns a new eventId each time, so we track by messageId instead.
+        if (eventType === "TEXT_MESSAGE_CONTENT") {
+          const textKey = String(obj.messageId ?? "") || "TEXT_MESSAGE_CONTENT";
           const fullDelta = String(obj.delta ?? "");
-          const prevLen = seenTextLengths.get(eventId) ?? 0;
-          seenTextLengths.set(eventId, fullDelta.length);
-          seenEventIds.add(eventId);
+          const prevLen = seenTextLengths.get(textKey) ?? 0;
+          seenTextLengths.set(textKey, fullDelta.length);
+          if (eventId) seenEventIds.add(eventId);
 
           if (fullDelta.length <= prevLen) continue; // No new text
 
