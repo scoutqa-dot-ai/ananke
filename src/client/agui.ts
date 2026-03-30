@@ -6,7 +6,7 @@ import {
 } from "@ag-ui/client";
 import { toProtocolEvent } from "./events.js";
 import { DEFAULT_CLIENT_TIMEOUT_MS, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_MS } from "../constants.js";
-import type { TimestampedProtocolEvent } from "./events.js";
+import type { TimestampedProtocolEvent, TimestampedEvent } from "./events.js";
 import type { Logger } from "../logger.js";
 
 export interface AGUIClientOptions {
@@ -62,7 +62,7 @@ export class AGUIClient {
   /**
    * Send a message and stream events via SSE (agent/run)
    */
-  async *message(text: string): AsyncGenerator<TimestampedProtocolEvent> {
+  async *message(text: string): AsyncGenerator<TimestampedEvent> {
     const input: RunAgentInput = {
       context: [],
       forwardedProps: this.forwardedProps,
@@ -79,7 +79,7 @@ export class AGUIClient {
   /**
    * Resume an existing thread without sending a message (agent/connect)
    */
-  async *resume(): AsyncGenerator<TimestampedProtocolEvent> {
+  async *resume(): AsyncGenerator<TimestampedEvent> {
     const input: RunAgentInput = {
       context: [],
       forwardedProps: this.forwardedProps,
@@ -99,9 +99,11 @@ export class AGUIClient {
   private async *executeRequest(
     method: string,
     input: RunAgentInput
-  ): AsyncGenerator<TimestampedProtocolEvent> {
+  ): AsyncGenerator<TimestampedEvent> {
     const events: TimestampedProtocolEvent[] = [];
     let receivedMeaningfulEvents = false;
+    let transportFrameCount = 0;
+    let transportBytesReceived = 0;
 
     const executeStream = async (attempt: number): Promise<void> => {
       // Reset state for this attempt
@@ -144,6 +146,8 @@ export class AGUIClient {
           eventStream.subscribe({
             next: (event) => {
               receivedMeaningfulEvents = true;
+              transportFrameCount++;
+              transportBytesReceived += Buffer.byteLength(JSON.stringify(event), "utf-8");
               this.logger?.trace(`[AG-UI] Event: ${event.type}`);
               const aguiEvent = toProtocolEvent(event);
               if (aguiEvent) {
@@ -207,5 +211,13 @@ export class AGUIClient {
     for (const event of events) {
       yield event;
     }
+
+    // Emit transport-level metrics
+    yield {
+      type: "ananke:transport_stats" as const,
+      transportFrameCount,
+      transportBytesReceived,
+      "ananke:ts": Date.now(),
+    };
   }
 }

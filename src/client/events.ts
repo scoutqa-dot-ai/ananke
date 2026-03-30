@@ -90,10 +90,20 @@ export interface PromptSentEvent {
 }
 
 /**
+ * Ananke-specific synthetic event emitted at the end of a client stream
+ * with transport-level metrics (frame count and total bytes received).
+ */
+export interface TransportStatsEvent {
+  type: "ananke:transport_stats";
+  transportFrameCount: number;
+  transportBytesReceived: number;
+}
+
+/**
  * Full event union including ananke-internal events.
  * Used by the runner's collectStepData.
  */
-export type TimestampedEvent = (ProtocolEvent | PromptSentEvent) & { "ananke:ts": number };
+export type TimestampedEvent = (ProtocolEvent | PromptSentEvent | TransportStatsEvent) & { "ananke:ts": number };
 
 
 /**

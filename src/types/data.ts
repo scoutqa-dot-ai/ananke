@@ -34,6 +34,10 @@ export interface StepData {
   startTs: number;
   endTs: number;
   timings: StepTimings;
+  /** Number of transport-level frames received (STOMP messages or SSE events) */
+  transportFrameCount?: number;
+  /** Total bytes received at the transport level */
+  transportBytesReceived?: number;
   /** Per-step assertion results (present when step has assertions) */
   assertions?: StepAssertionResult;
   /** Script exit code (present only for script steps; non-zero means test was skipped) */

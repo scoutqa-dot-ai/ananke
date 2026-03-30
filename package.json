@@ -1,6 +1,6 @@
 {
   "name": "@scoutqa/ananke",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Assertion-based testing tool for AG-UI applications",
   "type": "module",
   "bin": {

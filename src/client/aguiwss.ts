@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { toProtocolEvent } from "./events.js";
 import { DEFAULT_CLIENT_TIMEOUT_MS } from "../constants.js";
-import type { TimestampedProtocolEvent } from "./events.js";
+import type { TimestampedProtocolEvent, TimestampedEvent } from "./events.js";
 import type { Logger } from "../logger.js";
 import { truncateLine } from "../runner/format.js";
 
@@ -112,7 +112,7 @@ export class AGUIWSSClient {
     this.wsStompHeaders = options.wsStompHeaders ?? {};
   }
 
-  async *message(text: string): AsyncGenerator<TimestampedProtocolEvent> {
+  async *message(text: string): AsyncGenerator<TimestampedEvent> {
     const seenEventIds = new Set<string>();
     const seenTextLengths = new Map<string, number>();
     const eventQueue: TimestampedProtocolEvent[] = [];
@@ -120,6 +120,8 @@ export class AGUIWSSClient {
     let error: Error | undefined;
     let resolveWaiting: (() => void) | undefined;
     let activeTimeoutId: ReturnType<typeof setTimeout> | undefined;
+    let transportFrameCount = 0;
+    let transportBytesReceived = 0;
 
     const scheduleTimeout = () => {
       if (activeTimeoutId) clearTimeout(activeTimeoutId);
@@ -207,7 +209,10 @@ export class AGUIWSSClient {
     };
 
     // Connect STOMP and subscribe
-    const stompClient = await this.connectStomp(onPayload);
+    const stompClient = await this.connectStomp(onPayload, (byteLength) => {
+      transportFrameCount++;
+      transportBytesReceived += byteLength;
+    });
     this.stompClient = stompClient;
 
     // Start idle timeout
@@ -254,6 +259,14 @@ export class AGUIWSSClient {
         "ananke:ts": Date.now(),
       };
     }
+
+    // Emit transport-level metrics
+    yield {
+      type: "ananke:transport_stats" as const,
+      transportFrameCount,
+      transportBytesReceived,
+      "ananke:ts": Date.now(),
+    };
   }
 
   async close(): Promise<void> {
@@ -268,7 +281,8 @@ export class AGUIWSSClient {
   }
 
   private connectStomp(
-    onEvent: (payload: z.infer<typeof payloadSchema>) => void
+    onEvent: (payload: z.infer<typeof payloadSchema>) => void,
+    onFrame?: (byteLength: number) => void,
   ): Promise<StompClient> {
     return new Promise((resolve, reject) => {
       const client = new StompClient({
@@ -293,6 +307,7 @@ export class AGUIWSSClient {
         client.subscribe(
           this.wsTopic,
           (message: IMessage) => {
+            onFrame?.(message.binaryBody?.byteLength ?? Buffer.byteLength(message.body, "utf-8"));
             let body: unknown;
             try {
               body = JSON.parse(message.body);

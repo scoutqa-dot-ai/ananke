@@ -49,6 +49,8 @@ export async function collectStepData(
   };
 
   let promptSentTs: number | null = null;
+  let transportFrameCount: number | undefined;
+  let transportBytesReceived: number | undefined;
 
   for await (const event of events) {
     const eventTs = event["ananke:ts"];
@@ -56,6 +58,13 @@ export async function collectStepData(
     // Use ananke:prompt_sent as the TTF baseline
     if (event.type === "ananke:prompt_sent") {
       promptSentTs = eventTs;
+      continue;
+    }
+
+    // Capture transport-level metrics
+    if (event.type === "ananke:transport_stats") {
+      transportFrameCount = event.transportFrameCount;
+      transportBytesReceived = event.transportBytesReceived;
       continue;
     }
 
@@ -125,6 +134,8 @@ export async function collectStepData(
     startTs: startTs ?? now,
     endTs: endTs ?? now,
     timings,
+    transportFrameCount,
+    transportBytesReceived,
   };
 }
 
