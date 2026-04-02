@@ -3,7 +3,7 @@ import WebSocket from "ws";
 import { z } from "zod";
 
 import { toProtocolEvent } from "./events.js";
-import { DEFAULT_CLIENT_TIMEOUT_MS } from "../constants.js";
+import { DEFAULT_CLIENT_TIMEOUT_MS, DEFAULT_POLL_IDLE_THRESHOLD_MS, DEFAULT_POLL_INTERVAL_MS } from "../constants.js";
 import type { TimestampedProtocolEvent, TimestampedEvent } from "./events.js";
 import type { Logger } from "../logger.js";
 import { truncateLine } from "../runner/format.js";
@@ -28,6 +28,12 @@ export interface AGUIWSSClientOptions {
   wsTopic: string;
   wsHeaders?: Record<string, string>;
   wsStompHeaders?: Record<string, string>;
+
+  // Polling fallback options
+  /** Idle threshold (ms) before polling fallback kicks in. Default: 60_000 */
+  pollIdleThreshold_ms?: number;
+  /** Polling interval (ms) once fallback is active. Default: 5_000 */
+  pollInterval_ms?: number;
 }
 
 
@@ -96,6 +102,8 @@ export class AGUIWSSClient {
   private wsHeaders: Record<string, string>;
   private wsStompHeaders: Record<string, string>;
   private stompClient: StompClient | undefined;
+  private pollIdleThreshold_ms: number;
+  private pollInterval_ms: number;
 
   constructor(options: AGUIWSSClientOptions) {
     this.endpoint = options.endpoint;
@@ -110,6 +118,8 @@ export class AGUIWSSClient {
     this.wsTopic = options.wsTopic;
     this.wsHeaders = options.wsHeaders ?? {};
     this.wsStompHeaders = options.wsStompHeaders ?? {};
+    this.pollIdleThreshold_ms = options.pollIdleThreshold_ms ?? DEFAULT_POLL_IDLE_THRESHOLD_MS;
+    this.pollInterval_ms = options.pollInterval_ms ?? DEFAULT_POLL_INTERVAL_MS;
   }
 
   async *message(text: string): AsyncGenerator<TimestampedEvent> {
@@ -122,6 +132,28 @@ export class AGUIWSSClient {
     let activeTimeoutId: ReturnType<typeof setTimeout> | undefined;
     let transportFrameCount = 0;
     let transportBytesReceived = 0;
+    let lastEventTime = Date.now();
+    let pollTimerId: ReturnType<typeof setInterval> | undefined;
+    let polling = false;
+
+    const startPolling = () => {
+      if (polling || done) return;
+      polling = true;
+      this.logger?.debug(`[AGUIWSS] WSS idle for ${this.pollIdleThreshold_ms / 1000}s, starting HTTP poll fallback every ${this.pollInterval_ms / 1000}s`);
+      pollTimerId = setInterval(() => {
+        if (done) { stopPolling(); return; }
+        this.pollConnect(onPayload);
+      }, this.pollInterval_ms);
+      // Fire one immediately
+      this.pollConnect(onPayload);
+    };
+
+    const stopPolling = () => {
+      if (!polling) return;
+      polling = false;
+      if (pollTimerId) { clearInterval(pollTimerId); pollTimerId = undefined; }
+      this.logger?.debug(`[AGUIWSS] Events resumed via WSS, stopping HTTP poll fallback`);
+    };
 
     const scheduleTimeout = () => {
       if (activeTimeoutId) clearTimeout(activeTimeoutId);
@@ -131,6 +163,7 @@ export class AGUIWSSClient {
           `No events for ${this.timeout_ms / 1000}s, idle timeout`
         );
         done = true;
+        stopPolling();
         resolveWaiting?.();
       }, this.timeout_ms);
     };
@@ -144,6 +177,8 @@ export class AGUIWSSClient {
       const events = payload.events;
       if (!events || events.length === 0) return;
 
+      lastEventTime = Date.now();
+      if (polling) stopPolling();
       scheduleTimeout();
 
       // Deduplicate using event IDs — the server sends the full accumulated
@@ -218,12 +253,23 @@ export class AGUIWSSClient {
     // Start idle timeout
     scheduleTimeout();
 
+    // Periodically check if WSS has gone idle and activate polling fallback
+    const idleCheckId = setInterval(() => {
+      if (done) { clearInterval(idleCheckId); return; }
+      const idleMs = Date.now() - lastEventTime;
+      if (idleMs >= this.pollIdleThreshold_ms && !polling) {
+        startPolling();
+      }
+    }, this.pollIdleThreshold_ms);
+
     // Send HTTP message
     try {
       this.logger?.trace(`[AGUIWSS] Sending message to ${this.endpoint}/${this.agentId}/run`);
       await this.sendHttpMessage(text);
     } catch (err) {
       if (activeTimeoutId) clearTimeout(activeTimeoutId);
+      clearInterval(idleCheckId);
+      stopPolling();
       await this.cleanup();
       const msg = err instanceof Error ? err.message : "Unknown error";
       yield {
@@ -248,6 +294,8 @@ export class AGUIWSSClient {
       }
     } finally {
       if (activeTimeoutId) clearTimeout(activeTimeoutId);
+      clearInterval(idleCheckId);
+      stopPolling();
       await this.cleanup();
     }
 
@@ -347,6 +395,41 @@ export class AGUIWSSClient {
 
       client.activate();
     });
+  }
+
+  private async pollConnect(
+    onPayload: (payload: z.infer<typeof payloadSchema>) => void,
+  ): Promise<void> {
+    const url = `${this.endpoint}/${this.agentId}/connect`;
+    try {
+      this.logger?.trace(`[AGUIWSS] Poll fallback POST ${url}`);
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          ...this.headers,
+        },
+        body: JSON.stringify({ threadId: this.threadId }),
+      });
+      if (!response.ok) {
+        this.logger?.debug(`[AGUIWSS] Poll fallback HTTP ${response.status}`);
+        return;
+      }
+      const body: unknown = await response.json();
+      // The response may be a payload directly or wrapped in a message envelope
+      const asMessage = messageSchema.safeParse(body);
+      if (asMessage.success && asMessage.data.additionalData) {
+        onPayload(asMessage.data.additionalData);
+        return;
+      }
+      const asPayload = payloadSchema.safeParse(body);
+      if (asPayload.success) {
+        onPayload(asPayload.data);
+      }
+    } catch (err) {
+      this.logger?.debug(`[AGUIWSS] Poll fallback error: ${err instanceof Error ? err.message : err}`);
+    }
   }
 
   private async sendHttpMessage(message: string): Promise<void> {
