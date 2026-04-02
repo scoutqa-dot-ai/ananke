@@ -97,6 +97,9 @@ export interface TransportStatsEvent {
   type: "ananke:transport_stats";
   transportFrameCount: number;
   transportBytesReceived: number;
+  aguiwssPollActivations: number;
+  aguiwssPollRequests: number;
+  aguiwssPollRecoveredEvents: number;
 }
 
 /**

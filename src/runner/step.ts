@@ -51,6 +51,9 @@ export async function collectStepData(
   let promptSentTs: number | null = null;
   let transportFrameCount: number | undefined;
   let transportBytesReceived: number | undefined;
+  let aguiwssPollActivations: number | undefined;
+  let aguiwssPollRequests: number | undefined;
+  let aguiwssPollRecoveredEvents: number | undefined;
 
   for await (const event of events) {
     const eventTs = event["ananke:ts"];
@@ -65,6 +68,9 @@ export async function collectStepData(
     if (event.type === "ananke:transport_stats") {
       transportFrameCount = event.transportFrameCount;
       transportBytesReceived = event.transportBytesReceived;
+      aguiwssPollActivations = event.aguiwssPollActivations;
+      aguiwssPollRequests = event.aguiwssPollRequests;
+      aguiwssPollRecoveredEvents = event.aguiwssPollRecoveredEvents;
       continue;
     }
 
@@ -136,6 +142,9 @@ export async function collectStepData(
     timings,
     transportFrameCount,
     transportBytesReceived,
+    aguiwssPollActivations,
+    aguiwssPollRequests,
+    aguiwssPollRecoveredEvents,
   };
 }
 

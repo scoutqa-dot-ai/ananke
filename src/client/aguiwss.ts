@@ -135,17 +135,22 @@ export class AGUIWSSClient {
     let lastEventTime = Date.now();
     let pollTimerId: ReturnType<typeof setInterval> | undefined;
     let polling = false;
+    let aguiwssPollActivations = 0;
+    let aguiwssPollRequests = 0;
+    let aguiwssPollRecoveredEvents = 0;
 
     const startPolling = () => {
       if (polling || done) return;
       polling = true;
+      aguiwssPollActivations++;
       this.logger?.debug(`[AGUIWSS] WSS idle for ${this.pollIdleThreshold_ms / 1000}s, starting HTTP poll fallback every ${this.pollInterval_ms / 1000}s`);
+      const trackRequest = () => { aguiwssPollRequests++; };
       pollTimerId = setInterval(() => {
         if (done) { stopPolling(); return; }
-        this.pollConnect(onPayload);
+        this.pollConnect(onPayloadFromPoll, trackRequest);
       }, this.pollInterval_ms);
       // Fire one immediately
-      this.pollConnect(onPayload);
+      this.pollConnect(onPayloadFromPoll, trackRequest);
     };
 
     const stopPolling = () => {
@@ -168,7 +173,7 @@ export class AGUIWSSClient {
       }, this.timeout_ms);
     };
 
-    const onPayload = (payload: z.infer<typeof payloadSchema>) => {
+    const onPayload = (payload: z.infer<typeof payloadSchema>, source: "wss" | "poll") => {
       if (payload.conversationId && payload.conversationId !== this.threadId) {
         this.logger?.trace(`[AGUIWSS] Skipping payload for different conversation: ${payload.conversationId} (expected: ${this.threadId})`);
         return;
@@ -177,8 +182,9 @@ export class AGUIWSSClient {
       const events = payload.events;
       if (!events || events.length === 0) return;
 
+      const queueLenBefore = eventQueue.length;
       lastEventTime = Date.now();
-      if (polling) stopPolling();
+      if (source === "wss" && polling) stopPolling();
       scheduleTimeout();
 
       // Deduplicate using event IDs — the server sends the full accumulated
@@ -240,11 +246,21 @@ export class AGUIWSSClient {
           this.logger?.trace(`[AGUIWSS] Event type "${event.type}" not mapped to protocol event, skipped`);
         }
       }
+      if (source === "poll") {
+        const newEvents = eventQueue.length - queueLenBefore;
+        if (newEvents > 0) {
+          aguiwssPollRecoveredEvents += newEvents;
+          this.logger?.debug(`[AGUIWSS] Poll recovered ${newEvents} new event(s)`);
+        }
+      }
       resolveWaiting?.();
     };
 
+    const onPayloadFromWss = (payload: z.infer<typeof payloadSchema>) => onPayload(payload, "wss");
+    const onPayloadFromPoll = (payload: z.infer<typeof payloadSchema>) => onPayload(payload, "poll");
+
     // Connect STOMP and subscribe
-    const stompClient = await this.connectStomp(onPayload, (byteLength) => {
+    const stompClient = await this.connectStomp(onPayloadFromWss, (byteLength) => {
       transportFrameCount++;
       transportBytesReceived += byteLength;
     });
@@ -313,6 +329,9 @@ export class AGUIWSSClient {
       type: "ananke:transport_stats" as const,
       transportFrameCount,
       transportBytesReceived,
+      aguiwssPollActivations,
+      aguiwssPollRequests,
+      aguiwssPollRecoveredEvents,
       "ananke:ts": Date.now(),
     };
   }
@@ -399,9 +418,11 @@ export class AGUIWSSClient {
 
   private async pollConnect(
     onPayload: (payload: z.infer<typeof payloadSchema>) => void,
+    onRequest?: () => void,
   ): Promise<void> {
     const url = `${this.endpoint}/${this.agentId}/connect`;
     try {
+      onRequest?.();
       this.logger?.trace(`[AGUIWSS] Poll fallback POST ${url}`);
       const response = await fetch(url, {
         method: "POST",

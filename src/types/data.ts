@@ -38,6 +38,12 @@ export interface StepData {
   transportFrameCount?: number;
   /** Total bytes received at the transport level */
   transportBytesReceived?: number;
+  /** Number of times HTTP poll fallback was activated due to WSS idle */
+  aguiwssPollActivations?: number;
+  /** Total HTTP poll requests made */
+  aguiwssPollRequests?: number;
+  /** Number of events recovered via polling (not received through WSS) */
+  aguiwssPollRecoveredEvents?: number;
   /** Per-step assertion results (present when step has assertions) */
   assertions?: StepAssertionResult;
   /** Script exit code (present only for script steps; non-zero means test was skipped) */

@@ -217,6 +217,9 @@ export class AGUIClient {
       type: "ananke:transport_stats" as const,
       transportFrameCount,
       transportBytesReceived,
+      aguiwssPollActivations: 0,
+      aguiwssPollRequests: 0,
+      aguiwssPollRecoveredEvents: 0,
       "ananke:ts": Date.now(),
     };
   }
