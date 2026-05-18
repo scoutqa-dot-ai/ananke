@@ -245,6 +245,16 @@ export async function runTest(options: TestRunnerOptions): Promise<TestResult> {
       logger.debug(`    Tools: ${stepData.toolCalls.map((t) => t.name).join(', ') || '(none)'}`);
       logger.debug(`    Duration: ${formatDuration(stepData.endTs - stepData.startTs)}`);
 
+      if (stepData.error !== undefined) {
+        return {
+          testName: test.name,
+          passed: false,
+          testData: buildTestData(steps, startTs),
+          error: `Step ${i + 1} failed: Protocol run error: ${stepData.error}`,
+          failures: [],
+        };
+      }
+
       // Evaluate step-level assertions
       const stepExpect = step.expect;
       const hasAssertions = stepExpect !== undefined && Object.keys(stepExpect).length > 0;

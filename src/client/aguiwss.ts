@@ -289,6 +289,15 @@ export class AGUIWSSClient {
       await this.cleanup();
       const msg = err instanceof Error ? err.message : "Unknown error";
       yield {
+        type: "ananke:transport_stats" as const,
+        transportFrameCount,
+        transportBytesReceived,
+        aguiwssPollActivations,
+        aguiwssPollRequests,
+        aguiwssPollRecoveredEvents,
+        "ananke:ts": Date.now(),
+      };
+      yield {
         type: "RUN_ERROR",
         runId: "",
         message: msg,
@@ -315,16 +324,8 @@ export class AGUIWSSClient {
       await this.cleanup();
     }
 
-    if (error) {
-      yield {
-        type: "RUN_ERROR",
-        runId: "",
-        message: error.message,
-        "ananke:ts": Date.now(),
-      };
-    }
-
-    // Emit transport-level metrics
+    // Emit transport-level metrics before any terminal RUN_ERROR so consumers
+    // that abort on RUN_ERROR still capture the stats.
     yield {
       type: "ananke:transport_stats" as const,
       transportFrameCount,
@@ -334,6 +335,15 @@ export class AGUIWSSClient {
       aguiwssPollRecoveredEvents,
       "ananke:ts": Date.now(),
     };
+
+    if (error) {
+      yield {
+        type: "RUN_ERROR",
+        runId: "",
+        message: error.message,
+        "ananke:ts": Date.now(),
+      };
+    }
   }
 
   async close(): Promise<void> {
