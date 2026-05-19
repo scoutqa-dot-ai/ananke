@@ -214,6 +214,9 @@ export class AGUIClient {
       aguiwssPollActivations: 0,
       aguiwssPollRequests: 0,
       aguiwssPollRecoveredEvents: 0,
+      aguiwssSeqGaps: 0,
+      aguiwssReconnects: 0,
+      aguiwssStatusSynthesizedTerminators: 0,
       "ananke:ts": Date.now(),
     };
 

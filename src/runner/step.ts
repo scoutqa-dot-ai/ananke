@@ -54,6 +54,9 @@ export async function collectStepData(
   let aguiwssPollActivations: number | undefined;
   let aguiwssPollRequests: number | undefined;
   let aguiwssPollRecoveredEvents: number | undefined;
+  let aguiwssSeqGaps: number | undefined;
+  let aguiwssReconnects: number | undefined;
+  let aguiwssStatusSynthesizedTerminators: number | undefined;
   let runError: string | undefined;
 
   for await (const event of events) {
@@ -72,6 +75,9 @@ export async function collectStepData(
       aguiwssPollActivations = event.aguiwssPollActivations;
       aguiwssPollRequests = event.aguiwssPollRequests;
       aguiwssPollRecoveredEvents = event.aguiwssPollRecoveredEvents;
+      aguiwssSeqGaps = event.aguiwssSeqGaps;
+      aguiwssReconnects = event.aguiwssReconnects;
+      aguiwssStatusSynthesizedTerminators = event.aguiwssStatusSynthesizedTerminators;
       continue;
     }
 
@@ -152,6 +158,9 @@ export async function collectStepData(
     aguiwssPollActivations,
     aguiwssPollRequests,
     aguiwssPollRecoveredEvents,
+    aguiwssSeqGaps,
+    aguiwssReconnects,
+    aguiwssStatusSynthesizedTerminators,
     ...(runError !== undefined ? { error: runError } : {}),
   };
 }

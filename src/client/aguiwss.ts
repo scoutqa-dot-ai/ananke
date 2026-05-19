@@ -3,7 +3,14 @@ import WebSocket from "ws";
 import { z } from "zod";
 
 import { toProtocolEvent } from "./events.js";
-import { DEFAULT_CLIENT_TIMEOUT_MS, DEFAULT_POLL_IDLE_THRESHOLD_MS, DEFAULT_POLL_INTERVAL_MS } from "../constants.js";
+import {
+  DEFAULT_CLIENT_TIMEOUT_MS,
+  DEFAULT_POLL_IDLE_THRESHOLD_MS,
+  DEFAULT_POLL_INTERVAL_MS,
+  DEFAULT_STOMP_RECONNECT_DELAY_MS,
+  DEFAULT_STOMP_HEARTBEAT_MS,
+  DEFAULT_BACKGROUND_POLL_INTERVAL_MS,
+} from "../constants.js";
 import type { TimestampedProtocolEvent, TimestampedEvent } from "./events.js";
 import type { Logger } from "../logger.js";
 import { truncateLine } from "../runner/format.js";
@@ -34,6 +41,12 @@ export interface AGUIWSSClientOptions {
   pollIdleThreshold_ms?: number;
   /** Polling interval (ms) once fallback is active. Default: 5_000 */
   pollInterval_ms?: number;
+  /** STOMP reconnect delay (ms). 0 disables reconnection. */
+  stompReconnectDelay_ms?: number;
+  /** STOMP heartbeat (ms) in both directions. 0 disables. */
+  stompHeartbeat_ms?: number;
+  /** Background poll interval (ms) — periodic catch-up poll regardless of idle. 0 disables. */
+  backgroundPollInterval_ms?: number;
 }
 
 
@@ -57,11 +70,123 @@ const eventSchema = z.object({
 const payloadSchema = z.object({
   events: z.array(z.unknown()).optional(),
   conversationId: z.string().optional(),
+  status: z.string().optional(),
+  seq: z.number().optional(),
 });
 
 const messageSchema = z.object({
   additionalData: payloadSchema.optional(),
 });
+
+// The /connect endpoint returns a conversation snapshot in this shape when the
+// run is paused or finished server-side but WSS never emitted a terminator.
+const historyToolCallSchema = z.object({
+  id: z.string(),
+  type: z.string().optional(),
+  function: z.object({
+    name: z.string(),
+    arguments: z.string().optional(),
+  }),
+});
+const historyEventSchema = z.object({
+  id: z.string().optional(),
+  sourceMessageId: z.string().optional(),
+  role: z.string().optional(),
+  content: z.string().optional(),
+  toolCalls: z.array(historyToolCallSchema).optional(),
+  toolCallId: z.string().optional(),
+});
+const connectResponseSchema = z.object({
+  status: z.string().optional(),
+  historyEvents: z.array(historyEventSchema).optional(),
+  events: z.array(z.unknown()).optional(),
+  conversationId: z.string().optional(),
+});
+
+// Statuses returned by /connect that mean "this run is done from the server's
+// POV, stop waiting for more events."
+const TERMINAL_CONNECT_STATUSES = new Set([
+  "input-required",
+  "completed",
+  "succeeded",
+  "failed",
+  "errored",
+  "canceled",
+  "cancelled",
+]);
+const FAILED_CONNECT_STATUSES = new Set(["failed", "errored"]);
+
+/**
+ * Find the index of the first historyEvent that belongs to the current run.
+ * Strategy: locate the most-recent user message matching the text we sent;
+ * everything after it is the agent's response to this run.
+ *
+ * Falls back to 0 if no match (treats all history as current — only used as a
+ * last resort; will be filtered by per-message dedup downstream).
+ */
+export function findRunStartIndex(
+  history: z.infer<typeof historyEventSchema>[],
+  userMessage: string | null,
+): number {
+  if (userMessage === null) return history.length; // resume(): no user text → recover nothing by content match
+  const target = userMessage.trim();
+  for (let i = history.length - 1; i >= 0; i--) {
+    const ev = history[i];
+    if (ev.role !== "user" || typeof ev.content !== "string") continue;
+    if (ev.content.trim() === target) return i + 1;
+  }
+  return history.length; // No match — safer to recover nothing than to leak prior turns
+}
+
+export function historyEventsToRawAGUI(
+  history: z.infer<typeof historyEventSchema>[],
+): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  for (const ev of history) {
+    if (ev.role === "assistant" && ev.content && ev.sourceMessageId) {
+      out.push({
+        type: "TEXT_MESSAGE_CONTENT",
+        eventId: `history:msg:${ev.sourceMessageId}`,
+        messageId: ev.sourceMessageId,
+        delta: ev.content,
+      });
+      continue;
+    }
+    if (ev.role === "tool" && ev.toolCalls?.length) {
+      for (const tc of ev.toolCalls) {
+        out.push({
+          type: "TOOL_CALL_START",
+          eventId: `history:tcs:${tc.id}`,
+          toolCallId: tc.id,
+          toolCallName: tc.function.name,
+        });
+        if (tc.function.arguments) {
+          out.push({
+            type: "TOOL_CALL_ARGS",
+            eventId: `history:tca:${tc.id}`,
+            toolCallId: tc.id,
+            delta: tc.function.arguments,
+          });
+        }
+        out.push({
+          type: "TOOL_CALL_END",
+          eventId: `history:tce:${tc.id}`,
+          toolCallId: tc.id,
+        });
+      }
+      continue;
+    }
+    if (ev.role === "tool" && ev.toolCallId && typeof ev.content === "string") {
+      out.push({
+        type: "TOOL_CALL_RESULT",
+        eventId: `history:tcr:${ev.toolCallId}`,
+        toolCallId: ev.toolCallId,
+        result: ev.content,
+      });
+    }
+  }
+  return out;
+}
 
 const SENSITIVE_HEADER_RE = /^(Authorization|Cookie|X-Api-Key|Token):.*$/gim;
 const STOMP_NOISE_RE = /^>>>?\s*PING$|^<<<?\s*PONG$|ping\s*every\s*\d+ms|pong\s*every\s*\d+ms|using\s*runInterval|outgoing\s*ping\s*disposeInterval|Web Socket Opened|Received data|connected to server/i;
@@ -104,6 +229,9 @@ export class AGUIWSSClient {
   private stompClient: StompClient | undefined;
   private pollIdleThreshold_ms: number;
   private pollInterval_ms: number;
+  private stompReconnectDelay_ms: number;
+  private stompHeartbeat_ms: number;
+  private backgroundPollInterval_ms: number;
 
   constructor(options: AGUIWSSClientOptions) {
     this.endpoint = options.endpoint;
@@ -120,11 +248,17 @@ export class AGUIWSSClient {
     this.wsStompHeaders = options.wsStompHeaders ?? {};
     this.pollIdleThreshold_ms = options.pollIdleThreshold_ms ?? DEFAULT_POLL_IDLE_THRESHOLD_MS;
     this.pollInterval_ms = options.pollInterval_ms ?? DEFAULT_POLL_INTERVAL_MS;
+    this.stompReconnectDelay_ms = options.stompReconnectDelay_ms ?? DEFAULT_STOMP_RECONNECT_DELAY_MS;
+    this.stompHeartbeat_ms = options.stompHeartbeat_ms ?? DEFAULT_STOMP_HEARTBEAT_MS;
+    this.backgroundPollInterval_ms = options.backgroundPollInterval_ms ?? DEFAULT_BACKGROUND_POLL_INTERVAL_MS;
   }
 
   async *message(text: string): AsyncGenerator<TimestampedEvent> {
     const seenEventIds = new Set<string>();
     const seenTextLengths = new Map<string, number>();
+    // Dedup TOOL_CALL_* by `${toolCallId}:${kind}` — WSS and recovered history
+    // payloads use different eventIds for the same tool call.
+    const seenToolCallEventKeys = new Set<string>();
     const eventQueue: TimestampedProtocolEvent[] = [];
     let done = false;
     let error: Error | undefined;
@@ -138,19 +272,24 @@ export class AGUIWSSClient {
     let aguiwssPollActivations = 0;
     let aguiwssPollRequests = 0;
     let aguiwssPollRecoveredEvents = 0;
+    let aguiwssSeqGaps = 0;
+    let aguiwssReconnects = 0;
+    let aguiwssStatusSynthesizedTerminators = 0;
+    let lastSeq: number | undefined;
+    let runIdFromServer: string | undefined;
+    let backgroundPollTimerId: ReturnType<typeof setInterval> | undefined;
 
     const startPolling = () => {
       if (polling || done) return;
       polling = true;
       aguiwssPollActivations++;
       this.logger?.debug(`[AGUIWSS] WSS idle for ${this.pollIdleThreshold_ms / 1000}s, starting HTTP poll fallback every ${this.pollInterval_ms / 1000}s`);
-      const trackRequest = () => { aguiwssPollRequests++; };
       pollTimerId = setInterval(() => {
         if (done) { stopPolling(); return; }
-        this.pollConnect(onPayloadFromPoll, trackRequest);
+        this.pollConnect(onPayloadFromPoll, trackPollRequest, text);
       }, this.pollInterval_ms);
       // Fire one immediately
-      this.pollConnect(onPayloadFromPoll, trackRequest);
+      this.pollConnect(onPayloadFromPoll, trackPollRequest, text);
     };
 
     const stopPolling = () => {
@@ -173,14 +312,33 @@ export class AGUIWSSClient {
       }, this.timeout_ms);
     };
 
+    const trackPollRequest = () => { aguiwssPollRequests++; };
+
     const onPayload = (payload: z.infer<typeof payloadSchema>, source: "wss" | "poll") => {
       if (payload.conversationId && payload.conversationId !== this.threadId) {
         this.logger?.trace(`[AGUIWSS] Skipping payload for different conversation: ${payload.conversationId} (expected: ${this.threadId})`);
         return;
       }
 
+      // Detect dropped WSS frames via seq gaps; fire an immediate poll to recover.
+      if (source === "wss" && typeof payload.seq === "number") {
+        if (lastSeq !== undefined && payload.seq > lastSeq + 1) {
+          aguiwssSeqGaps++;
+          this.logger?.debug(`[AGUIWSS] seq gap ${lastSeq} → ${payload.seq}, polling to recover`);
+          // Best-effort recovery; errors are logged inside pollConnect.
+          void this.pollConnect(onPayloadFromPoll, trackPollRequest, text);
+        }
+        if (lastSeq === undefined || payload.seq > lastSeq) {
+          lastSeq = payload.seq;
+        }
+      }
+
       const events = payload.events;
-      if (!events || events.length === 0) return;
+      const hasEvents = !!events && events.length > 0;
+      const terminalStatus =
+        payload.status && TERMINAL_CONNECT_STATUSES.has(payload.status) ? payload.status : null;
+
+      if (!hasEvents && !terminalStatus) return;
 
       const queueLenBefore = eventQueue.length;
       lastEventTime = Date.now();
@@ -195,7 +353,7 @@ export class AGUIWSSClient {
       // growing `delta` that contains the full text so far.  We convert that
       // into an incremental delta so downstream consumers (collectStepData)
       // can simply append.
-      for (const raw of events) {
+      for (const raw of hasEvents ? events! : []) {
         const obj = raw as Record<string, unknown>;
         const eventId = String(obj.eventId ?? obj.id ?? "");
         const eventType = String(obj.type ?? "");
@@ -223,6 +381,18 @@ export class AGUIWSSClient {
           continue;
         }
 
+        // TOOL_CALL_* dedup by toolCallId+kind — same tool call can arrive via
+        // both WSS and recovered history with different eventIds.
+        if (eventType.startsWith("TOOL_CALL_")) {
+          const tcId = String(obj.toolCallId ?? "");
+          if (tcId) {
+            const kind = eventType.slice("TOOL_CALL_".length).toLowerCase();
+            const key = `${tcId}:${kind}`;
+            if (seenToolCallEventKeys.has(key)) continue;
+            seenToolCallEventKeys.add(key);
+          }
+        }
+
         // Skip events we've already processed (by ID)
         if (eventId && seenEventIds.has(eventId)) continue;
         if (eventId) seenEventIds.add(eventId);
@@ -239,6 +409,9 @@ export class AGUIWSSClient {
         if (aguiEvent) {
           eventQueue.push({ ...aguiEvent, "ananke:ts": Date.now() });
 
+          if (event.type === "RUN_STARTED" && event.runId) {
+            runIdFromServer = event.runId;
+          }
           if (event.type === "RUN_FINISHED" || event.type === "RUN_ERROR") {
             done = true;
           }
@@ -246,6 +419,38 @@ export class AGUIWSSClient {
           this.logger?.trace(`[AGUIWSS] Event type "${event.type}" not mapped to protocol event, skipped`);
         }
       }
+
+      // Backup terminator: if the server reports a terminal status but never
+      // emitted RUN_FINISHED/RUN_ERROR (lost frame, or skipped because of the
+      // server's pendingClientToolCalls guard), synthesize one with a stable
+      // eventId so repeated payloads don't duplicate it.
+      if (terminalStatus && !done) {
+        const isError = FAILED_CONNECT_STATUSES.has(terminalStatus);
+        const synthKey = isError
+          ? "ananke:run_error:status-synthesized"
+          : "ananke:run_finished:status-synthesized";
+        if (!seenEventIds.has(synthKey)) {
+          seenEventIds.add(synthKey);
+          aguiwssStatusSynthesizedTerminators++;
+          this.logger?.debug(`[AGUIWSS] ${source} terminal status "${terminalStatus}" with no terminator event — synthesizing`);
+          if (isError) {
+            eventQueue.push({
+              type: "RUN_ERROR",
+              runId: runIdFromServer ?? this.threadId,
+              message: `Run ${terminalStatus}`,
+              "ananke:ts": Date.now(),
+            });
+          } else {
+            eventQueue.push({
+              type: "RUN_FINISHED",
+              runId: runIdFromServer ?? this.threadId,
+              "ananke:ts": Date.now(),
+            });
+          }
+          done = true;
+        }
+      }
+
       if (source === "poll") {
         const newEvents = eventQueue.length - queueLenBefore;
         if (newEvents > 0) {
@@ -260,10 +465,19 @@ export class AGUIWSSClient {
     const onPayloadFromPoll = (payload: z.infer<typeof payloadSchema>) => onPayload(payload, "poll");
 
     // Connect STOMP and subscribe
-    const stompClient = await this.connectStomp(onPayloadFromWss, (byteLength) => {
-      transportFrameCount++;
-      transportBytesReceived += byteLength;
-    });
+    const stompClient = await this.connectStomp(
+      onPayloadFromWss,
+      (byteLength) => {
+        transportFrameCount++;
+        transportBytesReceived += byteLength;
+      },
+      () => {
+        aguiwssReconnects++;
+        // After reconnect, immediately poll /connect to catch up on frames sent
+        // while we were disconnected.
+        if (!done) this.pollConnect(onPayloadFromPoll, trackPollRequest, text);
+      },
+    );
     this.stompClient = stompClient;
 
     // Start idle timeout
@@ -278,6 +492,19 @@ export class AGUIWSSClient {
       }
     }, this.pollIdleThreshold_ms);
 
+    // Optional background poll: regardless of idle state, fire a /connect at a
+    // low cadence to catch up on lost frames. Off by default.
+    if (this.backgroundPollInterval_ms > 0) {
+      backgroundPollTimerId = setInterval(() => {
+        if (done) {
+          if (backgroundPollTimerId) clearInterval(backgroundPollTimerId);
+          backgroundPollTimerId = undefined;
+          return;
+        }
+        this.pollConnect(onPayloadFromPoll, trackPollRequest, text);
+      }, this.backgroundPollInterval_ms);
+    }
+
     // Send HTTP message
     try {
       this.logger?.trace(`[AGUIWSS] Sending message to ${this.endpoint}/${this.agentId}/run`);
@@ -285,6 +512,7 @@ export class AGUIWSSClient {
     } catch (err) {
       if (activeTimeoutId) clearTimeout(activeTimeoutId);
       clearInterval(idleCheckId);
+      if (backgroundPollTimerId) clearInterval(backgroundPollTimerId);
       stopPolling();
       await this.cleanup();
       const msg = err instanceof Error ? err.message : "Unknown error";
@@ -295,6 +523,9 @@ export class AGUIWSSClient {
         aguiwssPollActivations,
         aguiwssPollRequests,
         aguiwssPollRecoveredEvents,
+        aguiwssSeqGaps,
+        aguiwssReconnects,
+        aguiwssStatusSynthesizedTerminators,
         "ananke:ts": Date.now(),
       };
       yield {
@@ -314,6 +545,9 @@ export class AGUIWSSClient {
       aguiwssPollActivations,
       aguiwssPollRequests,
       aguiwssPollRecoveredEvents,
+      aguiwssSeqGaps,
+      aguiwssReconnects,
+      aguiwssStatusSynthesizedTerminators,
       "ananke:ts": Date.now(),
     });
 
@@ -338,6 +572,7 @@ export class AGUIWSSClient {
     } finally {
       if (activeTimeoutId) clearTimeout(activeTimeoutId);
       clearInterval(idleCheckId);
+      if (backgroundPollTimerId) clearInterval(backgroundPollTimerId);
       stopPolling();
       await this.cleanup();
     }
@@ -373,8 +608,10 @@ export class AGUIWSSClient {
   private connectStomp(
     onEvent: (payload: z.infer<typeof payloadSchema>) => void,
     onFrame?: (byteLength: number) => void,
+    onReconnect?: () => void,
   ): Promise<StompClient> {
     return new Promise((resolve, reject) => {
+      let connectedOnce = false;
       const client = new StompClient({
         webSocketFactory: () => {
           const hasWsHeaders = Object.keys(this.wsHeaders).length > 0;
@@ -384,7 +621,9 @@ export class AGUIWSSClient {
           ) as unknown as globalThis.WebSocket;
         },
         connectHeaders: this.wsStompHeaders,
-        reconnectDelay: 0,
+        reconnectDelay: this.stompReconnectDelay_ms,
+        heartbeatIncoming: this.stompHeartbeat_ms,
+        heartbeatOutgoing: this.stompHeartbeat_ms,
         debug: (msg) => {
           if (!isStompNoise(msg)) {
             this.logger?.trace(`[STOMP] ${sanitizeStompDebug(msg)}`);
@@ -393,7 +632,12 @@ export class AGUIWSSClient {
       });
 
       client.onConnect = () => {
-        this.logger?.trace(`[AGUIWSS] STOMP connected, subscribing to ${this.wsTopic}`);
+        if (connectedOnce) {
+          this.logger?.debug(`[AGUIWSS] STOMP reconnected, re-subscribing to ${this.wsTopic}`);
+          onReconnect?.();
+        } else {
+          this.logger?.trace(`[AGUIWSS] STOMP connected, subscribing to ${this.wsTopic}`);
+        }
         client.subscribe(
           this.wsTopic,
           (message: IMessage) => {
@@ -416,7 +660,10 @@ export class AGUIWSSClient {
           },
           this.wsStompHeaders
         );
-        resolve(client);
+        if (!connectedOnce) {
+          connectedOnce = true;
+          resolve(client);
+        }
       };
 
       client.onStompError = (frame) => {
@@ -442,6 +689,7 @@ export class AGUIWSSClient {
   private async pollConnect(
     onPayload: (payload: z.infer<typeof payloadSchema>) => void,
     onRequest?: () => void,
+    userMessage: string | null = null,
   ): Promise<void> {
     const url = `${this.endpoint}/${this.agentId}/connect`;
     try {
@@ -461,15 +709,50 @@ export class AGUIWSSClient {
         return;
       }
       const body: unknown = await response.json();
-      // The response may be a payload directly or wrapped in a message envelope
+      // The response may be a payload directly, wrapped in a message envelope,
+      // or a /connect snapshot { status, historyEvents } that we translate
+      // back into AG-UI events.
       const asMessage = messageSchema.safeParse(body);
-      if (asMessage.success && asMessage.data.additionalData) {
+      if (asMessage.success && asMessage.data.additionalData?.events?.length) {
         onPayload(asMessage.data.additionalData);
         return;
       }
-      const asPayload = payloadSchema.safeParse(body);
-      if (asPayload.success) {
-        onPayload(asPayload.data);
+      const asConnect = connectResponseSchema.safeParse(body);
+      if (!asConnect.success) return;
+
+      const recovered: Record<string, unknown>[] = [];
+      if (asConnect.data.events?.length) {
+        recovered.push(...(asConnect.data.events as Record<string, unknown>[]));
+      }
+      if (asConnect.data.historyEvents?.length) {
+        const startIdx = findRunStartIndex(asConnect.data.historyEvents, userMessage);
+        if (startIdx < asConnect.data.historyEvents.length) {
+          recovered.push(
+            ...historyEventsToRawAGUI(asConnect.data.historyEvents.slice(startIdx)),
+          );
+        }
+      }
+      const status = asConnect.data.status;
+      if (status && TERMINAL_CONNECT_STATUSES.has(status)) {
+        const isError = FAILED_CONNECT_STATUSES.has(status);
+        recovered.push(
+          isError
+            ? {
+                type: "RUN_ERROR",
+                eventId: "ananke:run_error:synthesized",
+                runId: this.threadId,
+                message: `Run ${status}`,
+              }
+            : {
+                type: "RUN_FINISHED",
+                eventId: "ananke:run_finished:synthesized",
+                runId: this.threadId,
+              },
+        );
+        this.logger?.debug(`[AGUIWSS] Poll detected terminal status "${status}", synthesizing terminator`);
+      }
+      if (recovered.length > 0) {
+        onPayload({ events: recovered, conversationId: asConnect.data.conversationId });
       }
     } catch (err) {
       this.logger?.debug(`[AGUIWSS] Poll fallback error: ${err instanceof Error ? err.message : err}`);

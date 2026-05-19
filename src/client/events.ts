@@ -100,6 +100,12 @@ export interface TransportStatsEvent {
   aguiwssPollActivations: number;
   aguiwssPollRequests: number;
   aguiwssPollRecoveredEvents: number;
+  /** Count of WSS frames whose `seq` skipped a value (indicates dropped frames). */
+  aguiwssSeqGaps: number;
+  /** Count of STOMP reconnects observed during the run. */
+  aguiwssReconnects: number;
+  /** Count of synthesized terminators (RUN_FINISHED/RUN_ERROR) emitted from a server-supplied terminal status. */
+  aguiwssStatusSynthesizedTerminators: number;
 }
 
 /**
