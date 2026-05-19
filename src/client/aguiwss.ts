@@ -63,6 +63,115 @@ const messageSchema = z.object({
   additionalData: payloadSchema.optional(),
 });
 
+// The /connect endpoint returns a conversation snapshot in this shape when the
+// run is paused or finished server-side but WSS never emitted a terminator.
+const historyToolCallSchema = z.object({
+  id: z.string(),
+  type: z.string().optional(),
+  function: z.object({
+    name: z.string(),
+    arguments: z.string().optional(),
+  }),
+});
+const historyEventSchema = z.object({
+  id: z.string().optional(),
+  sourceMessageId: z.string().optional(),
+  role: z.string().optional(),
+  content: z.string().optional(),
+  toolCalls: z.array(historyToolCallSchema).optional(),
+  toolCallId: z.string().optional(),
+});
+const connectResponseSchema = z.object({
+  status: z.string().optional(),
+  historyEvents: z.array(historyEventSchema).optional(),
+  events: z.array(z.unknown()).optional(),
+  conversationId: z.string().optional(),
+});
+
+// Statuses returned by /connect that mean "this run is done from the server's
+// POV, stop waiting for more events."
+const TERMINAL_CONNECT_STATUSES = new Set([
+  "input-required",
+  "completed",
+  "succeeded",
+  "failed",
+  "errored",
+  "canceled",
+  "cancelled",
+]);
+const FAILED_CONNECT_STATUSES = new Set(["failed", "errored"]);
+
+/**
+ * Find the index of the first historyEvent that belongs to the current run.
+ * Strategy: locate the most-recent user message matching the text we sent;
+ * everything after it is the agent's response to this run.
+ *
+ * Falls back to 0 if no match (treats all history as current — only used as a
+ * last resort; will be filtered by per-message dedup downstream).
+ */
+export function findRunStartIndex(
+  history: z.infer<typeof historyEventSchema>[],
+  userMessage: string | null,
+): number {
+  if (userMessage === null) return history.length; // resume(): no user text → recover nothing by content match
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].role === "user" && history[i].content === userMessage) {
+      return i + 1;
+    }
+  }
+  return history.length; // No match — safer to recover nothing than to leak prior turns
+}
+
+export function historyEventsToRawAGUI(
+  history: z.infer<typeof historyEventSchema>[],
+): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  for (const ev of history) {
+    if (ev.role === "assistant" && ev.content && ev.sourceMessageId) {
+      out.push({
+        type: "TEXT_MESSAGE_CONTENT",
+        eventId: `history:msg:${ev.sourceMessageId}`,
+        messageId: ev.sourceMessageId,
+        delta: ev.content,
+      });
+      continue;
+    }
+    if (ev.role === "tool" && ev.toolCalls?.length) {
+      for (const tc of ev.toolCalls) {
+        out.push({
+          type: "TOOL_CALL_START",
+          eventId: `history:tcs:${tc.id}`,
+          toolCallId: tc.id,
+          toolCallName: tc.function.name,
+        });
+        if (tc.function.arguments) {
+          out.push({
+            type: "TOOL_CALL_ARGS",
+            eventId: `history:tca:${tc.id}`,
+            toolCallId: tc.id,
+            delta: tc.function.arguments,
+          });
+        }
+        out.push({
+          type: "TOOL_CALL_END",
+          eventId: `history:tce:${tc.id}`,
+          toolCallId: tc.id,
+        });
+      }
+      continue;
+    }
+    if (ev.role === "tool" && ev.toolCallId && typeof ev.content === "string") {
+      out.push({
+        type: "TOOL_CALL_RESULT",
+        eventId: `history:tcr:${ev.toolCallId}`,
+        toolCallId: ev.toolCallId,
+        result: ev.content,
+      });
+    }
+  }
+  return out;
+}
+
 const SENSITIVE_HEADER_RE = /^(Authorization|Cookie|X-Api-Key|Token):.*$/gim;
 const STOMP_NOISE_RE = /^>>>?\s*PING$|^<<<?\s*PONG$|ping\s*every\s*\d+ms|pong\s*every\s*\d+ms|using\s*runInterval|outgoing\s*ping\s*disposeInterval|Web Socket Opened|Received data|connected to server/i;
 
@@ -125,6 +234,9 @@ export class AGUIWSSClient {
   async *message(text: string): AsyncGenerator<TimestampedEvent> {
     const seenEventIds = new Set<string>();
     const seenTextLengths = new Map<string, number>();
+    // Dedup TOOL_CALL_* by `${toolCallId}:${kind}` — WSS and recovered history
+    // payloads use different eventIds for the same tool call.
+    const seenToolCallEventKeys = new Set<string>();
     const eventQueue: TimestampedProtocolEvent[] = [];
     let done = false;
     let error: Error | undefined;
@@ -147,10 +259,10 @@ export class AGUIWSSClient {
       const trackRequest = () => { aguiwssPollRequests++; };
       pollTimerId = setInterval(() => {
         if (done) { stopPolling(); return; }
-        this.pollConnect(onPayloadFromPoll, trackRequest);
+        this.pollConnect(onPayloadFromPoll, trackRequest, text);
       }, this.pollInterval_ms);
       // Fire one immediately
-      this.pollConnect(onPayloadFromPoll, trackRequest);
+      this.pollConnect(onPayloadFromPoll, trackRequest, text);
     };
 
     const stopPolling = () => {
@@ -221,6 +333,18 @@ export class AGUIWSSClient {
           };
           eventQueue.push(aguiEvent);
           continue;
+        }
+
+        // TOOL_CALL_* dedup by toolCallId+kind — same tool call can arrive via
+        // both WSS and recovered history with different eventIds.
+        if (eventType.startsWith("TOOL_CALL_")) {
+          const tcId = String(obj.toolCallId ?? "");
+          if (tcId) {
+            const kind = eventType.slice("TOOL_CALL_".length).toLowerCase();
+            const key = `${tcId}:${kind}`;
+            if (seenToolCallEventKeys.has(key)) continue;
+            seenToolCallEventKeys.add(key);
+          }
         }
 
         // Skip events we've already processed (by ID)
@@ -442,6 +566,7 @@ export class AGUIWSSClient {
   private async pollConnect(
     onPayload: (payload: z.infer<typeof payloadSchema>) => void,
     onRequest?: () => void,
+    userMessage: string | null = null,
   ): Promise<void> {
     const url = `${this.endpoint}/${this.agentId}/connect`;
     try {
@@ -461,15 +586,50 @@ export class AGUIWSSClient {
         return;
       }
       const body: unknown = await response.json();
-      // The response may be a payload directly or wrapped in a message envelope
+      // The response may be a payload directly, wrapped in a message envelope,
+      // or a /connect snapshot { status, historyEvents } that we translate
+      // back into AG-UI events.
       const asMessage = messageSchema.safeParse(body);
-      if (asMessage.success && asMessage.data.additionalData) {
+      if (asMessage.success && asMessage.data.additionalData?.events?.length) {
         onPayload(asMessage.data.additionalData);
         return;
       }
-      const asPayload = payloadSchema.safeParse(body);
-      if (asPayload.success) {
-        onPayload(asPayload.data);
+      const asConnect = connectResponseSchema.safeParse(body);
+      if (!asConnect.success) return;
+
+      const recovered: Record<string, unknown>[] = [];
+      if (asConnect.data.events?.length) {
+        recovered.push(...(asConnect.data.events as Record<string, unknown>[]));
+      }
+      if (asConnect.data.historyEvents?.length) {
+        const startIdx = findRunStartIndex(asConnect.data.historyEvents, userMessage);
+        if (startIdx < asConnect.data.historyEvents.length) {
+          recovered.push(
+            ...historyEventsToRawAGUI(asConnect.data.historyEvents.slice(startIdx)),
+          );
+        }
+      }
+      const status = asConnect.data.status;
+      if (status && TERMINAL_CONNECT_STATUSES.has(status)) {
+        const isError = FAILED_CONNECT_STATUSES.has(status);
+        recovered.push(
+          isError
+            ? {
+                type: "RUN_ERROR",
+                eventId: "ananke:run_error:synthesized",
+                runId: this.threadId,
+                message: `Run ${status}`,
+              }
+            : {
+                type: "RUN_FINISHED",
+                eventId: "ananke:run_finished:synthesized",
+                runId: this.threadId,
+              },
+        );
+        this.logger?.debug(`[AGUIWSS] Poll detected terminal status "${status}", synthesizing terminator`);
+      }
+      if (recovered.length > 0) {
+        onPayload({ events: recovered, conversationId: asConnect.data.conversationId });
       }
     } catch (err) {
       this.logger?.debug(`[AGUIWSS] Poll fallback error: ${err instanceof Error ? err.message : err}`);
