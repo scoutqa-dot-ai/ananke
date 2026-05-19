@@ -34,3 +34,12 @@ export const DEFAULT_POLL_IDLE_THRESHOLD_MS = envInt("ANANKE_POLL_IDLE_THRESHOLD
 
 /** HTTP poll interval once fallback is active */
 export const DEFAULT_POLL_INTERVAL_MS = envInt("ANANKE_POLL_INTERVAL_MS", 5_000);
+
+/** STOMP reconnect delay (ms). 0 disables reconnection. */
+export const DEFAULT_STOMP_RECONNECT_DELAY_MS = envInt("ANANKE_STOMP_RECONNECT_DELAY_MS", 1_000);
+
+/** STOMP heartbeat interval (ms) for both directions. 0 disables heartbeats. */
+export const DEFAULT_STOMP_HEARTBEAT_MS = envInt("ANANKE_STOMP_HEARTBEAT_MS", 10_000);
+
+/** Background poll interval (ms) — periodic catch-up poll regardless of idle. 0 disables. */
+export const DEFAULT_BACKGROUND_POLL_INTERVAL_MS = envInt("ANANKE_BACKGROUND_POLL_INTERVAL_MS", 0);

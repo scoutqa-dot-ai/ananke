@@ -44,6 +44,12 @@ export interface StepData {
   aguiwssPollRequests?: number;
   /** Number of events recovered via polling (not received through WSS) */
   aguiwssPollRecoveredEvents?: number;
+  /** WSS frames whose `seq` skipped a value (dropped-frame indicator) */
+  aguiwssSeqGaps?: number;
+  /** STOMP reconnects observed during the step */
+  aguiwssReconnects?: number;
+  /** Terminators synthesized from a server-supplied terminal status */
+  aguiwssStatusSynthesizedTerminators?: number;
   /** Per-step assertion results (present when step has assertions) */
   assertions?: StepAssertionResult;
   /** Script exit code (present only for script steps; non-zero means test was skipped) */
