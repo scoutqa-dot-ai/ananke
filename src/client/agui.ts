@@ -207,13 +207,7 @@ export class AGUIClient {
 
     await executeStream(1);
 
-    // Yield all collected events
-    for (const event of events) {
-      yield event;
-    }
-
-    // Emit transport-level metrics
-    yield {
+    const stats: TimestampedEvent = {
       type: "ananke:transport_stats" as const,
       transportFrameCount,
       transportBytesReceived,
@@ -222,5 +216,19 @@ export class AGUIClient {
       aguiwssPollRecoveredEvents: 0,
       "ananke:ts": Date.now(),
     };
+
+    // Yield stats immediately before any terminal event so consumers that
+    // abort on RUN_ERROR still receive them.
+    let statsEmitted = false;
+    for (const event of events) {
+      if (!statsEmitted && (event.type === "RUN_ERROR" || event.type === "RUN_FINISHED")) {
+        statsEmitted = true;
+        yield stats;
+      }
+      yield event;
+    }
+    if (!statsEmitted) {
+      yield stats;
+    }
   }
 }

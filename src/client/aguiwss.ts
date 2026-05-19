@@ -289,6 +289,15 @@ export class AGUIWSSClient {
       await this.cleanup();
       const msg = err instanceof Error ? err.message : "Unknown error";
       yield {
+        type: "ananke:transport_stats" as const,
+        transportFrameCount,
+        transportBytesReceived,
+        aguiwssPollActivations,
+        aguiwssPollRequests,
+        aguiwssPollRecoveredEvents,
+        "ananke:ts": Date.now(),
+      };
+      yield {
         type: "RUN_ERROR",
         runId: "",
         message: msg,
@@ -297,11 +306,29 @@ export class AGUIWSSClient {
       return;
     }
 
-    // Yield events as they arrive
+    let statsEmitted = false;
+    const buildStats = (): TimestampedEvent => ({
+      type: "ananke:transport_stats" as const,
+      transportFrameCount,
+      transportBytesReceived,
+      aguiwssPollActivations,
+      aguiwssPollRequests,
+      aguiwssPollRecoveredEvents,
+      "ananke:ts": Date.now(),
+    });
+
+    // Yield events as they arrive. Emit transport_stats immediately before any
+    // terminal event (RUN_FINISHED or server-originated RUN_ERROR) so consumers
+    // that abort on RUN_ERROR still receive the stats.
     try {
       while (!done || eventQueue.length > 0) {
         if (eventQueue.length > 0) {
-          yield eventQueue.shift()!;
+          const next = eventQueue.shift()!;
+          if (!statsEmitted && (next.type === "RUN_ERROR" || next.type === "RUN_FINISHED")) {
+            statsEmitted = true;
+            yield buildStats();
+          }
+          yield next;
         } else if (!done) {
           await new Promise<void>((resolve) => {
             resolveWaiting = resolve;
@@ -315,6 +342,13 @@ export class AGUIWSSClient {
       await this.cleanup();
     }
 
+    // Fallback path: idle-timeout (no terminal event was queued). Emit stats
+    // before the synthesized RUN_ERROR.
+    if (!statsEmitted) {
+      statsEmitted = true;
+      yield buildStats();
+    }
+
     if (error) {
       yield {
         type: "RUN_ERROR",
@@ -323,17 +357,6 @@ export class AGUIWSSClient {
         "ananke:ts": Date.now(),
       };
     }
-
-    // Emit transport-level metrics
-    yield {
-      type: "ananke:transport_stats" as const,
-      transportFrameCount,
-      transportBytesReceived,
-      aguiwssPollActivations,
-      aguiwssPollRequests,
-      aguiwssPollRecoveredEvents,
-      "ananke:ts": Date.now(),
-    };
   }
 
   async close(): Promise<void> {

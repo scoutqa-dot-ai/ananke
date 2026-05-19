@@ -54,6 +54,7 @@ export async function collectStepData(
   let aguiwssPollActivations: number | undefined;
   let aguiwssPollRequests: number | undefined;
   let aguiwssPollRecoveredEvents: number | undefined;
+  let runError: string | undefined;
 
   for await (const event of events) {
     const eventTs = event["ananke:ts"];
@@ -115,6 +116,12 @@ export async function collectStepData(
       );
     }
 
+    if (event.type === "RUN_ERROR") {
+      runError = event.message;
+      logger?.debug(`[step] RUN_ERROR received: ${event.message}`);
+      break;
+    }
+
     handleEvent(event, toolCalls, pendingToolCalls, (text) => {
       assistantText += text;
     });
@@ -145,6 +152,7 @@ export async function collectStepData(
     aguiwssPollActivations,
     aguiwssPollRequests,
     aguiwssPollRecoveredEvents,
+    ...(runError !== undefined ? { error: runError } : {}),
   };
 }
 
@@ -216,8 +224,5 @@ function handleEvent(
       }
       break;
     }
-
-    case "RUN_ERROR":
-      throw new Error(`Protocol run error: ${event.message}`);
   }
 }

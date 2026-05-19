@@ -48,6 +48,8 @@ export interface StepData {
   assertions?: StepAssertionResult;
   /** Script exit code (present only for script steps; non-zero means test was skipped) */
   exitCode?: number;
+  /** Protocol error message (set when RUN_ERROR is received) */
+  error?: string;
 }
 
 export interface TestData {
